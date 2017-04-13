@@ -1,0 +1,17 @@
+language: python
+python:
+- '3.5'
+install:
+- pip install -r requirements.txt
+- pip install .
+script: py.test
+deploy:
+  provider: pypi
+  user: machow
+  password:
+    secure: iXwty4Tl0W6oNrqs7xl+kUOk8lNRNIb7CpcMX2ZhREVhnIHUc0UZ1sHnOoqk6hGjPKxakKw2AoXzFXEnjev876VTuHkjzPJXywOF28LVxuH0iU7+yTHrlPwOT2cuAmg2ppYb/bZnjdqFORlo4ZX4OGpgNIzKJmgqfrelUaAJ0HTIsmLycwu3pKkS6E5LUMVNliwM8D9hM5yjm2QUecKU749XuNlDlDXYrdBmUXEx/lss/BLbKuYJwpGHf3NEtBGIvCcBXqgniqA4P3hiO7a3GtCHfs3Xr90HFIWmJIxCnmXTPb0pqbId7wVxPUi8eOMY+jo0DIT3e0j6nNdQXxE3R9wKrd4RTBKVGSkwpmS/ZTQ+sC02kQAT7LosJwed8auU7YATuRutfeam5F6yLKeHpS3q7mn2n2BtPtMafUCdtsWa0Nag78VZ21k/lORycSA+UpzdfCAajFqj8BbCGQ7RptzjSX4+9QTtD5gYGxFoZFKCzi3N5vftyLwOwnMU+rtKxA/Q9GMIh21W151SZyUg9za34pobhFKX2PIrxjL5Rq423/s2CmWzU51pFLdphqp4IgdGioy4D4ThOxVrx4atHOlSpYZD/cnDNdXF07r9AvtaQZOIA7AGjtcMM2RbTOkMh2KYv3bWa4x0OR/wpJO9SIu4oXrcImSJZUek4ry3GMs=
+  on:
+    tags: true
+    distributions: sdist bdist_wheel
+    repo: datacamp/antlr-ast
+  skip_upload_docs: true
