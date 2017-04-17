@@ -68,7 +68,8 @@ class AstNode(AST):         # AST is subclassed only so we can use ast.NodeVisit
         return cls(ctx, **field_dict)
 
     def _get_field_names(self):
-        return [el.split('->')[-1] for el in self._fields]
+        od = OrderedDict([(el.split('->')[-1], None) for el in self._fields])
+        return list(od)
 
     def _get_text(self, text):
         return text[self._ctx.start.start: self._ctx.stop.stop + 1]
