@@ -98,8 +98,8 @@ class AstNode(AST):         # AST is subclassed only so we can use ast.NodeVisit
         return "{}: {}".format(self.__class__.__name__, ", ".join(els))
 
     def __repr__(self):
-        field_reps = {k: repr(getattr(self, k)) for k in self._get_field_names() if getattr(self, k, None) is not None}
-        args = ", ".join("{} = {}".format(k, v) for k, v in field_reps.items())
+        field_reps = [(k, repr(getattr(self, k))) for k in self._get_field_names() if getattr(self, k, None) is not None]
+        args = ", ".join("{} = {}".format(k, v) for k, v in field_reps)
         return "{}({})".format(self.__class__.__name__, args)
 
     @classmethod
