@@ -23,6 +23,7 @@ def dump_node(obj):
 class AstNode(AST):         # AST is subclassed only so we can use ast.NodeVisitor...
     _fields = []            # contains child nodes to visit
     _priority = 1           # whether to descend for selection (greater descends into lower)
+    _rules = []
 
     def __init__(self, _ctx = None, **kwargs):
         # TODO: ensure key is in _fields?
@@ -100,3 +101,31 @@ class AstNode(AST):         # AST is subclassed only so we can use ast.NodeVisit
         field_reps = {k: repr(getattr(self, k)) for k in self._get_field_names() if getattr(self, k, None) is not None}
         args = ", ".join("{} = {}".format(k, v) for k, v in field_reps.items())
         return "{}({})".format(self.__class__.__name__, args)
+
+    @classmethod
+    def _bind_to_visitor(cls, visitor_cls, method='_from_fields'):
+        for rule in cls._rules:
+            print(rule)
+            bind_to_visitor(visitor_cls, cls, rule, method)
+
+
+
+# Helper functions -------
+
+def create_visitor(node, method='_from_fields'):
+    f = getattr(node, method)
+    assert callable(f)
+    def visitor(self, ctx):
+        return f(self, ctx)
+
+    return visitor
+
+def bind_to_visitor(visitor_cls, node_cls, rule_name, method):
+    """Assign AST node class constructors to parse tree visitors."""
+    f = create_visitor(node_cls, method)
+    # TODO raise warning if attr already on visitor?
+    method_name = 'visit%s' %rule_name.capitalize()
+    print(method_name)
+    setattr(visitor_cls, method_name, f)
+
+
