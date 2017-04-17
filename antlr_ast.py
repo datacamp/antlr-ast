@@ -105,7 +105,7 @@ class AstNode(AST):         # AST is subclassed only so we can use ast.NodeVisit
     @classmethod
     def _bind_to_visitor(cls, visitor_cls, method='_from_fields'):
         for rule in cls._rules:
-            print(rule)
+            if not isinstance(rule, str): rule, method = rule[:2]
             bind_to_visitor(visitor_cls, cls, rule, method)
 
 
@@ -125,7 +125,5 @@ def bind_to_visitor(visitor_cls, node_cls, rule_name, method):
     f = create_visitor(node_cls, method)
     # TODO raise warning if attr already on visitor?
     method_name = 'visit%s' %rule_name.capitalize()
-    print(method_name)
     setattr(visitor_cls, method_name, f)
-
 
