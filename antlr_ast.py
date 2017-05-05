@@ -128,3 +128,45 @@ def bind_to_visitor(visitor_cls, node_cls, rule_name, method):
     method_name = 'visit%s' %rule_name.capitalize()
     setattr(visitor_cls, method_name, f)
 
+
+# Speaker class ---------------------------------------------------------------
+
+class Speaker:
+    def __init__(self, **cfg):
+        """Initialize speaker instance, for a set of AST nodes.
+
+        Arguments:
+            nodes:  dictionary of node names, and their human friendly names.
+                    Each entry for a node may also be a dictionary containing
+                    name: human friendly name, fields: a dictionary to override
+                    the field names for that node.
+            fields: dictionary of human friendly field names, used as a default
+                    for each node.
+        """
+        self.node_names  = cfg['nodes']
+        self.field_names = cfg.get('fields', {})
+
+    def describe(self, node, fmt = "{node_name}", field = None, **kwargs):
+        cls_name = node.__class__.__name__
+        def_field_name = self.field_names.get(field) or field.replace('_', ' ') if field else ""
+
+        node_cfg = self.node_names.get(cls_name, cls_name)
+        node_name, field_names = self.get_info(node_cfg)
+
+        d = {'node': node,
+             'field_name': field_names.get(field, def_field_name),
+             'node_name': node_name.format(node=node)
+             }
+
+        return fmt.format(**d, **kwargs)
+
+    @staticmethod
+    def get_info(node_cfg):
+        node_cfg = node_cfg if isinstance(node_cfg, dict) else {'name': node_cfg}
+
+        return node_cfg.get('name'), node_cfg.get('fields', {})
+
+
+
+        
+
