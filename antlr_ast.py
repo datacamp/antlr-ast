@@ -162,6 +162,8 @@ class Speaker:
 
     @staticmethod
     def get_info(node_cfg):
+        """Return a tuple with the verbal name of a node, and a dict of field names."""
+
         node_cfg = node_cfg if isinstance(node_cfg, dict) else {'name': node_cfg}
 
         return node_cfg.get('name'), node_cfg.get('fields', {})
