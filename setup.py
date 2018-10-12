@@ -11,11 +11,11 @@ with open('antlr_ast.py', 'rb') as f:
         f.read().decode('utf-8')).group(1)))
 
 setup(
-	name = 'antlr-ast',
-	version = version,
-	py_modules= ['antlr_ast'],
-	install_requires = ['antlr4-python3-runtime'],
-        description = 'AST shaping for antlr parsers',
-        author = 'Michael Chow',
-        author_email = 'michael@datacamp.com',
-        url = 'https://github.com/datacamp/antlr-ast')
+    name='antlr-ast',
+    version=version,
+    py_modules=['antlr_ast'],
+    install_requires=['antlr4-python3-runtime'],
+    description='AST shaping for antlr parsers',
+    author='Michael Chow',
+    author_email='michael@datacamp.com',
+    url='https://github.com/datacamp/antlr-ast')
