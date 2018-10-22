@@ -1,5 +1,4 @@
-antlr-ast
-=========
+# antlr-ast
 
 [![Build Status](https://travis-ci.org/datacamp/antlr-ast.svg?branch=master)](https://travis-ci.org/datacamp/antlr-ast)
 
@@ -8,27 +7,23 @@ This package allows you to take an Antlr4 parser output, and generate an abstrac
 Antlr4 parser outputs are often processed using the [visitor pattern](https://en.wikipedia.org/wiki/Visitor_pattern).
 By using `antlr-ast`'s `AstNode`, you can define how an antlr visitor should generate an AST.
 
-Install
--------
+## Install
 
-```
+```bash
 pip install antlr-ast
 ```
 
 **Note:** this package is not python2 compatible.
 
-Running Tests
--------------
+## Running Tests
 
-```
+```bash
 # may need:
 # pip install pytest
 py.test
 ```
 
-
-Usage
------
+## Usage
 
 **Note: This tutorial assumes you know how to parse code, and create a python visitor.**
 See the Antlr4 [getting started guide](https://github.com/antlr/antlr4/blob/4.7.1/doc/getting-started.md) if you have never installed Antlr.
@@ -45,7 +40,7 @@ Using `antlr-ast` involves three steps:
 Below, we'll use a simple grammar to explain how `antlr-ast` works.
 This grammar can be found in `/tests/Expr.g4`.
 
-```
+```g4
 grammar Expr;
 
 expr:   left=expr op=('+'|'-') right=expr       #BinaryExpr
@@ -55,7 +50,7 @@ expr:   left=expr op=('+'|'-') right=expr       #BinaryExpr
     ;
 
 INT :   [0-9]+ ;         // match integers
-NOT :   'not' ;         
+NOT :   'not' ;
 
 WS  :   [ \t]+ -> skip ; // toss out whitespace
 ```
@@ -63,7 +58,7 @@ WS  :   [ \t]+ -> skip ; // toss out whitespace
 Antlr4 can use the grammar above to generate a parser in a number of languages.
 To generate a python parser, you can use the following command.
 
-```
+```bash
 antlr4 -Dlanguage=Python3 -visitor /tests/Expr.g4
 ```
 
@@ -72,7 +67,7 @@ a parser (`ExprParser.py`), and a visitor (`ExprVisitor.py`).
 
 You can use and import these directly in python. For example, from the root of this repo...
 
-```
+```bash
 from tests import ExprVisitor
 ```
 
@@ -81,7 +76,7 @@ from tests import ExprVisitor
 By subclassing AstNode, we can define how Antlr4 should shape parser output to our desired AST.
 For example, `/tests/test_expr_ast.py` defines the following classes for the grammar above.
 
-```
+```python
 from antlr_ast import AstNode
 
 class SubExpr(AstNode):
@@ -94,7 +89,7 @@ class NotExpr(AstNode):
     _fields = ['NOT->op', 'expr']
 ```
 
-Note that `_fields` allows you to redefine rule names. 
+Note that `_fields` allows you to redefine rule names.
 For example, in the grammar, the rule for matching expressions is named "expr".
 In this case, using `'expr->expression'` says that the expr field should be called "expression" instead.
 
@@ -103,7 +98,7 @@ In this case, using `'expr->expression'` says that the expr field should be call
 Once you have defined your AST classes, you can connect them to the visitor, using their `_from_fields` method.
 For example..
 
-```
+```python
 AstVisitor(ExprVisitor):                                  # antlr visitor subclass
     def visitBinaryExpr(self, ctx):                       # method on visitor
         return BinaryExpr._from_fields(self, ctx)         # _from_fields method
@@ -113,7 +108,7 @@ Then, whenever the visitor passes through a BinaryExpr node in the parse tree, i
 
 Note that the parse tree has a node named `BinaryExpr`, with the fields `left`, `right`, and `expr`, due to this line of the grammar:
 
-```
+```g4
 expr:   left=expr op=('+'|'-') right=expr       #BinaryExpr
 ```
 
