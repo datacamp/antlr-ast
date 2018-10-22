@@ -2,9 +2,25 @@ __version__ = "0.2.1"
 
 from ast import AST
 from antlr4.Token import CommonToken
+from antlr4 import InputStream, CommonTokenStream
 import json
 
 from collections import OrderedDict
+
+
+def parse(grammar, visitor, sql_text, start, strict=False):
+    input_stream = InputStream(sql_text)
+
+    lexer = grammar.Lexer(input_stream)
+    token_stream = CommonTokenStream(lexer)
+    parser = grammar.Parser(token_stream)
+
+    if strict:
+        error_listener = CustomErrorListener()
+        parser.removeErrorListeners()
+        parser.addErrorListener(error_listener)
+
+    return visitor.visit(getattr(parser, start)())
 
 
 def dump_node(obj):
