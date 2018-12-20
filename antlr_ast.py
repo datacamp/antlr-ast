@@ -2,14 +2,15 @@ __version__ = "0.2.1"
 
 from ast import AST
 from antlr4.Token import CommonToken
-from antlr4 import InputStream, CommonTokenStream
+from antlr4 import CommonTokenStream
+from inputstream import CaseTransformInputStream
 import json
 
 from collections import OrderedDict
 
 
-def parse(grammar, visitor, sql_text, start, strict=False):
-    input_stream = InputStream(sql_text)
+def parse(grammar, visitor, sql_text, start, strict=False, upper=True):
+    input_stream = CaseTransformInputStream(sql_text, upper=upper)
 
     lexer = grammar.Lexer(input_stream)
     token_stream = CommonTokenStream(lexer)
