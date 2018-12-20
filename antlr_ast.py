@@ -9,19 +9,20 @@ import json
 from collections import OrderedDict
 
 
-def parse(grammar, visitor, sql_text, start, strict=False, upper=True):
-    input_stream = CaseTransformInputStream(sql_text, upper=upper)
+def parse(grammar, text, start, strict=False, upper=True):
+    input_stream = CaseTransformInputStream(text, upper=upper)
 
     lexer = grammar.Lexer(input_stream)
     token_stream = CommonTokenStream(lexer)
     parser = grammar.Parser(token_stream)
+    parser.buildParseTrees = True  # default
 
     if strict:
         error_listener = CustomErrorListener()
         parser.removeErrorListeners()
         parser.addErrorListener(error_listener)
 
-    return visitor.visit(getattr(parser, start)())
+    return getattr(parser, start)()
 
 
 def dump_node(obj):
