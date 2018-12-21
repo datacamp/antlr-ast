@@ -174,7 +174,7 @@ def bind_to_visitor(visitor_cls, node_cls, rule_name, method):
     """Assign AST node class constructors to parse tree visitors."""
     visitor = get_visitor(node_cls, method)
     # TODO raise warning if attr already on visitor?
-    method_name = "visit{}".format(rule_name.capitalize())
+    method_name = "visit{}".format(rule_name[0].upper() + rule_name[1:])
     setattr(visitor_cls, method_name, visitor)
 
 
