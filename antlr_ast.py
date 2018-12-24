@@ -7,6 +7,7 @@ from inputstream import CaseTransformInputStream
 import json
 
 from collections import OrderedDict
+import warnings
 
 
 def parse(grammar, text, start, strict=False, upper=True):
@@ -61,9 +62,15 @@ class AstNode(AST):
     _rules = []
 
     def __init__(self, _ctx=None, **kwargs):
-        # TODO: ensure key is in _fields?
+        # This makes instances compatible with tree walking
+        self.__fields = self._fields
+        self._fields = self._get_field_names()
+
         for k, v in kwargs.items():
+            if k not in self._fields:
+                warnings.warn("Key not in fields: {}".format(k))
             setattr(self, k, v)
+
         self._ctx = _ctx
 
     @classmethod
@@ -108,7 +115,7 @@ class AstNode(AST):
         return cls(ctx, **field_dict)
 
     def _get_field_names(self):
-        od = OrderedDict([(el.split("->")[-1], None) for el in self._fields])
+        od = OrderedDict([(el.split("->")[-1], None) for el in self.__fields])
         return list(od)
 
     def _get_text(self, text):
