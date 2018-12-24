@@ -173,9 +173,11 @@ def get_visitor(node, method="_from_fields"):
 
 def bind_to_visitor(visitor_cls, rule_name, visitor):
     """Assign AST node class constructors to parse tree visitors."""
-    # TODO raise warning if attr already on visitor?
-    method_name = "visit{}".format(rule_name[0].upper() + rule_name[1:])
-    setattr(visitor_cls, method_name, visitor)
+    setattr(visitor_cls, rule_to_visitor_name(rule_name), visitor)
+
+
+def rule_to_visitor_name(rule_name):
+    return "visit{}".format(rule_name[0].upper() + rule_name[1:])
 
 
 # Speaker class ---------------------------------------------------------------
