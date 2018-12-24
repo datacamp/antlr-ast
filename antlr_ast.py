@@ -154,7 +154,8 @@ class AstNode(AST):
         for rule in cls._rules:
             if not isinstance(rule, str):
                 rule, method = rule[:2]
-            bind_to_visitor(visitor_cls, cls, rule, method)
+            visitor = get_visitor(cls, method)
+            bind_to_visitor(visitor_cls, rule, visitor)
 
 
 # Helper functions -------
@@ -170,9 +171,8 @@ def get_visitor(node, method="_from_fields"):
     return visitor
 
 
-def bind_to_visitor(visitor_cls, node_cls, rule_name, method):
+def bind_to_visitor(visitor_cls, rule_name, visitor):
     """Assign AST node class constructors to parse tree visitors."""
-    visitor = get_visitor(node_cls, method)
     # TODO raise warning if attr already on visitor?
     method_name = "visit{}".format(rule_name[0].upper() + rule_name[1:])
     setattr(visitor_cls, method_name, visitor)
