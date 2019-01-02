@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.0
+
+## Changed
+
+- Better package structure
+
 ## v0.3.0
 
 ### Added
