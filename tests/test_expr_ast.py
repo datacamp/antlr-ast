@@ -1,4 +1,4 @@
-from antlr_ast import AstNode
+from antlr_ast.ast import AstNode
 
 from tests.ExprVisitor import ExprVisitor
 
@@ -79,7 +79,7 @@ def test_fields():
 # Speaker ---------------------------------------------------------------------
 
 import pytest
-from antlr_ast import Speaker
+from antlr_ast.ast import Speaker
 
 
 def test_speaker_default():

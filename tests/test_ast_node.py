@@ -1,6 +1,6 @@
 import pytest
 
-from antlr_ast import AstNode, parse_field_spec
+from antlr_ast.ast import AstNode, parse_field_spec
 
 
 def test_double_field():

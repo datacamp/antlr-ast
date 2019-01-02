@@ -1,6 +1,6 @@
 import pytest
 
-from antlr_ast import rule_to_visitor_name
+from antlr_ast.ast import rule_to_visitor_name
 
 
 @pytest.mark.parametrize(

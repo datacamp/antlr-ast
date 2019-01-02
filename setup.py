@@ -5,11 +5,11 @@ import ast
 from os import path
 from setuptools import setup
 
-PACKAGE_NAME = "antlr-ast"
+PACKAGE_NAME = "antlr_ast"
 REQUIREMENT_NAMES = ["antlr4-python3-runtime"]
 
 HERE = path.abspath(path.dirname(__file__))
-VERSION_FILE = path.join(HERE, "antlr_ast.py")
+VERSION_FILE = path.join(HERE, PACKAGE_NAME, "__init__.py")
 REQUIREMENTS_FILE = path.join(HERE, "requirements.txt")
 README_FILE = path.join(HERE, "README.md")
 
@@ -27,9 +27,9 @@ with open(README_FILE, encoding="utf-8") as fp:
     README = fp.read()
 
 setup(
-    name=PACKAGE_NAME,
+    name=PACKAGE_NAME.replace("_", "-"),
     version=VERSION,
-    py_modules=["antlr_ast"],
+    py_modules=[PACKAGE_NAME],
     install_requires=REQUIREMENTS,
     description="AST shaping for antlr parsers",
     long_description=README,

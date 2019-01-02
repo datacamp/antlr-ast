@@ -1,9 +1,7 @@
-__version__ = "0.3.0"
-
 from ast import AST
 from antlr4.Token import CommonToken
 from antlr4 import CommonTokenStream
-from inputstream import CaseTransformInputStream
+from antlr_ast.inputstream import CaseTransformInputStream
 import json
 
 from collections import OrderedDict, namedtuple
