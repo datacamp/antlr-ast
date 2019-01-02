@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.1
+
+- Fix setup.py
+
 ## v0.4.0
 
 ## Changed

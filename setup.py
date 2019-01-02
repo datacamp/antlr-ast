@@ -29,7 +29,7 @@ with open(README_FILE, encoding="utf-8") as fp:
 setup(
     name=PACKAGE_NAME.replace("_", "-"),
     version=VERSION,
-    py_modules=[PACKAGE_NAME],
+    packages=[PACKAGE_NAME],
     install_requires=REQUIREMENTS,
     description="AST shaping for antlr parsers",
     long_description=README,
