@@ -6,7 +6,7 @@ from antlr4 import CommonTokenStream
 from inputstream import CaseTransformInputStream
 import json
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 import warnings
 
 
@@ -46,11 +46,28 @@ def dump_node(obj):
         return obj
 
 
-class AstNode(AST):
+FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
+
+
+def parse_field_spec(spec):
+    # parse mapping for -> and indices [] -----
+    origin, *name = spec.split("->")
+    name = origin if not name else name[0]
+    return FieldSpec(name, origin)
+
+
+class AstNodeMeta(type):
+    @property
+    def _fields(cls):
+        od = OrderedDict([(parse_field_spec(el).name, None) for el in cls._fields_spec])
+        return list(od)
+
+
+class AstNode(AST, metaclass=AstNodeMeta):
     """AST is subclassed so we can use ast.NodeVisitor on the custom AST"""
 
     # contains child nodes to visit
-    _fields = []
+    _fields_spec = []
 
     # whether to descend for selection (greater descends into lower)
     _priority = 1
@@ -61,11 +78,13 @@ class AstNode(AST):
     # subclasses use _bind_to_visitor to create visit methods (for these nodes) on the visitor using this information
     _rules = []
 
-    def __init__(self, _ctx=None, **kwargs):
-        # This makes instances compatible with tree walking
-        self.__fields = self._fields
-        self._fields = self._get_field_names()
+    def __new__(cls, *args, **kwargs):
+        instance = super().__new__(cls, *args, **kwargs)
+        # necessary because AST implements this field
+        instance._fields = cls._fields
+        return instance
 
+    def __init__(self, _ctx=None, **kwargs):
         for k, v in kwargs.items():
             if k not in self._fields:
                 warnings.warn("Key not in fields: {}".format(k))
@@ -74,25 +93,22 @@ class AstNode(AST):
         self._ctx = _ctx
 
     @classmethod
-    def _from_fields(cls, visitor, ctx, fields=None):
+    def _from_fields(cls, visitor, ctx, fields_spec=None):
         """default visiting behavior, which uses fields"""
 
-        fields = cls._fields if fields is None else fields
+        fields_spec = cls._fields_spec if fields_spec is None else fields_spec
 
         field_dict = {}
-        for mapping in fields:
-            # parse mapping for -> and indices [] -----
-            k, *name = mapping.split("->")
-            name = k if not name else name[0]
+        for field_spec in fields_spec:
+            name, key = parse_field_spec(field_spec)
 
-            # currently, get_field_names will show field multiple times,
-            # e.g. a->x and b->x will produce two x fields
+            # _fields_spec can contain field multiple times
+            # e.g. a->x and b->x
             if field_dict.get(name):
                 continue
 
             # get node -----
-            # print(k)
-            child = getattr(ctx, k, getattr(ctx, name, None))
+            child = getattr(ctx, key, getattr(ctx, name, None))
             # when not alias needs to be called
             if callable(child):
                 child = child()
@@ -115,8 +131,7 @@ class AstNode(AST):
         return cls(ctx, **field_dict)
 
     def _get_field_names(self):
-        od = OrderedDict([(el.split("->")[-1], None) for el in self.__fields])
-        return list(od)
+        return self._fields
 
     def _get_text(self, text):
         return text[self._ctx.start.start : self._ctx.stop.stop + 1]
