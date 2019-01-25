@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.2
+
+### Added
+
+- Add parameter to `parse` function to set a custom error listener (or remove the default listener)
+
 ## v0.4.1
 
 - Fix setup.py
