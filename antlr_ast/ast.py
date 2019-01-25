@@ -8,7 +8,7 @@ from collections import OrderedDict, namedtuple
 import warnings
 
 
-def parse(grammar, text, start, strict=False, upper=True):
+def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     input_stream = CaseTransformInputStream(text, upper=upper)
 
     lexer = grammar.Lexer(input_stream)
@@ -17,9 +17,12 @@ def parse(grammar, text, start, strict=False, upper=True):
     parser.buildParseTrees = True  # default
 
     if strict:
-        error_listener = CustomErrorListener()
+        error_listener = StrictErrorListener()
+
+    if error_listener is not None:
         parser.removeErrorListeners()
-        parser.addErrorListener(error_listener)
+        if error_listener:
+            parser.addErrorListener(error_listener)
 
     return getattr(parser, start)()
 
@@ -27,12 +30,12 @@ def parse(grammar, text, start, strict=False, upper=True):
 def dump_node(obj):
     if isinstance(obj, AstNode):
         fields = OrderedDict()
-        for name in obj._get_field_names():
+        for name in obj._fields:
             attr = getattr(obj, name, None)
             if attr is None:
                 continue
             elif isinstance(attr, AstNode):
-                fields[name] = attr._dump()
+                fields[name] = dump_node(attr)
             elif isinstance(attr, list):
                 fields[name] = [dump_node(x) for x in attr]
             else:
@@ -247,7 +250,7 @@ class Speaker:
 # Error Listener ------------------------------------------------------------------
 
 from antlr4.error.ErrorListener import ErrorListener
-from antlr4.error.Errors import RecognitionException
+# from antlr4.error.Errors import RecognitionException
 
 
 class AntlrException(Exception):
@@ -255,7 +258,7 @@ class AntlrException(Exception):
         self.msg, self.orig = msg, orig
 
 
-class CustomErrorListener(ErrorListener):
+class StrictErrorListener(ErrorListener):
     def syntaxError(self, recognizer, badSymbol, line, col, msg, e):
         if e is not None:
             msg = "line {line}: {col} {msg}".format(line=line, col=col, msg=msg)
