@@ -109,27 +109,32 @@ class AstNode(AST, metaclass=AstNodeMeta):
                 continue
 
             # get node -----
-            child = getattr(ctx, key, getattr(ctx, name, None))
-            # when not alias needs to be called
-            if callable(child):
-                child = child()
-            # when alias set on token, need to go from CommonToken -> Terminal Node
-            elif isinstance(child, CommonToken):
-                # giving a name to lexer rules sets it to a token,
-                # rather than the terminal node corresponding to that token
-                # so we need to find it in children
-                child = next(
-                    filter(lambda c: getattr(c, "symbol", None) is child, ctx.children)
-                )
-
-            # set attr -----
-            if isinstance(child, list):
-                field_dict[name] = [visitor.visit(el) for el in child]
-            elif child:
-                field_dict[name] = visitor.visit(child)
-            else:
-                field_dict[name] = child
+            field = getattr(ctx, key, None)
+            field_dict[name] = cls._visit_field(visitor, ctx, field)
         return cls(ctx, **field_dict)
+
+    @classmethod
+    def _visit_field(cls, visitor, ctx, field):
+        # TODO: move to (new) shared visitor (cls not used)
+        # when not alias needs to be called
+        if callable(field):
+            field = field()
+        # when alias set on token, need to go from CommonToken -> Terminal Node
+        elif isinstance(field, CommonToken):
+            # giving a name to lexer rules sets it to a token,
+            # rather than the terminal node corresponding to that token
+            # so we need to find it in children
+            field = next(
+                filter(lambda c: getattr(c, "symbol", None) is field, ctx.children)
+            )
+
+        if isinstance(field, list):
+            result = [visitor.visit(el) for el in field]
+        elif field:
+            result = visitor.visit(field)
+        else:
+            result = field
+        return result
 
     def _get_field_names(self):
         return self._fields
