@@ -1,10 +1,10 @@
-from antlr_ast.ast import AstNode
+from antlr_ast.ast import AstNode, BaseAstVisitor
 
 from tests.ExprVisitor import ExprVisitor
 
 
 class SubExpr(AstNode):
-    _fields_spec = ["expr->expression"]
+    _fields_spec = ["expression=expr"]
 
 
 class BinaryExpr(AstNode):
@@ -12,10 +12,10 @@ class BinaryExpr(AstNode):
 
 
 class NotExpr(AstNode):
-    _fields_spec = ["NOT->op", "expr"]
+    _fields_spec = ["op=NOT", "expr"]
 
 
-class AstVisitor(ExprVisitor):
+class AstVisitor(BaseAstVisitor, ExprVisitor):
     def visitBinaryExpr(self, ctx):
         return BinaryExpr._from_fields(self, ctx)
 
