@@ -475,7 +475,7 @@ class ObjectAstVisitor(BaseAstVisitor):
     """
 
     def visitChildren(self, node, predicate=None, simplify=True):
-        fields = self.get_fields(node)
+        fields = self.get_field_names(node)
         return self.visit_fields(node, fields, simplify)
 
     def visit_fields(self, ctx, fields, simplify):
@@ -486,13 +486,6 @@ class ObjectAstVisitor(BaseAstVisitor):
             if value is not None:
                 if not isinstance(value, (dict, list)) or len(value) > 0:
                     field_dict[field_name] = value
-
-                    # [old] dynamically create classes for nodes
-                    # if isinstance(value, dict):
-                    #     cls = type(field.__name__, (ObjectNode,), {})
-                    #     cls_ctx = field() if callable(field) else field
-                    #     instance = cls(value, cls_ctx)
-                    #     field_dict[field.__name__] = instance
 
         cls_name = type(ctx).__name__.split('Context')[0]
         cls = type(cls_name, (ObjectNode,), {'_fields': tuple(fields)})
@@ -513,11 +506,7 @@ class ObjectAstVisitor(BaseAstVisitor):
         return labels
 
     @staticmethod
-    def get_fields(ctx):
-        # vars(ctx)
-        # dir(ctx)
-        # dir(super(type(ctx), ctx))
-
+    def get_field_names(ctx):
         # this does not include labels
         # only rule names and token names are in the tree (not literals)
         fields = [
@@ -527,18 +516,5 @@ class ObjectAstVisitor(BaseAstVisitor):
             and field not in ["accept", "enterRule", "exitRule", "getRuleIndex"]
         ]
         return fields
-
-        # [old] this code should be cleaner: recursive loop over bases
-        # (all fields are functions / properties on parser?
-        # return [
-        #     field
-        #     for field in type(ctx).__dict__
-        #     if field
-        #     not in {
-        #         **dict(type(ctx).__bases__[0].__dict__),
-        #         **dict(type(ctx).__bases__[0].__bases__[0].__dict__),
-        #         **dict(type(ctx).__bases__[0].__bases__[0].__bases__[0].__dict__),
-        #     }
-        # ]
 
     _remove_terminal = []
