@@ -53,9 +53,10 @@ FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
 
 
 def parse_field_spec(spec):
-    # parse mapping for -> and indices [] -----
-    origin, *name = spec.split("->")
-    name = origin if not name else name[0]
+    # parse mapping for = and .  # old: and indices [] -----
+    name, *origin = spec.split("=")
+    origin = name if not origin else origin[0]
+    origin = origin.split(".")
     return FieldSpec(name, origin)
 
 
@@ -69,17 +70,20 @@ class AstNodeMeta(type):
 class AstNode(AST, metaclass=AstNodeMeta):
     """AST is subclassed so we can use ast.NodeVisitor on the custom AST"""
 
-    # contains child nodes to visit
+    # defines class properties
+    # - as a property name to copy from ANTLR nodes
+    # - as a property name defined in terms of (nested) ANTLR node properties
     _fields_spec = []
+
+    # Defines which ANTLR nodes to convert to this node. Elements can be:
+    # - a string: uses AstNode._from_fields as visitor
+    # - a tuple ('node_name', 'ast_node_class_method_name'): uses ast_node_class_method_name as visitor
+    # subclasses use _bind_to_visitor to create visit methods for the nodes in _rules on the ParseTreeVisitor
+    # using this information
+    _rules = []
 
     # whether to descend for selection (greater descends into lower)
     _priority = 1
-
-    # nodes to convert to this node; methods to add to the AstVisitor elements are given
-    # - as string: uses AstNode._from_fields as visitor implementation
-    # - as tuple ('node_name', 'ast_node_class_method_name'): uses ast_node_class_method_name as visitor
-    # subclasses use _bind_to_visitor to create visit methods (for these nodes) on the visitor using this information
-    _rules = []
 
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls, *args, **kwargs)
@@ -96,23 +100,25 @@ class AstNode(AST, metaclass=AstNodeMeta):
         self._ctx = _ctx
 
     @classmethod
-    def _from_fields(cls, visitor, ctx: ParserRuleContext, fields_spec: List[str] = None):
+    def _from_fields(
+        cls, visitor, ctx: ParserRuleContext, fields_spec: List[str] = None
+    ):
         """default visiting behavior, which uses fields"""
 
         fields_spec = cls._fields_spec if fields_spec is None else fields_spec
 
         field_dict = {}
         for field_spec in fields_spec:
-            name, key = parse_field_spec(field_spec)
+            name, path = parse_field_spec(field_spec)
 
             # _fields_spec can contain field multiple times
-            # e.g. a->x and b->x
+            # e.g. x=a and x=b
             if field_dict.get(name):
+                # or / elif behaviour
                 continue
 
             # get node -----
-            field = getattr(ctx, key, None)
-            field_dict[name] = visitor.visit_field(ctx, field)
+            field_dict[name] = visitor.visit_path(ctx, path)
         return cls(ctx, **field_dict)
 
     def _get_field_names(self):
@@ -234,6 +240,7 @@ class Speaker:
 # Error Listener ------------------------------------------------------------------
 
 from antlr4.error.ErrorListener import ErrorListener
+
 # from antlr4.error.Errors import RecognitionException
 
 
@@ -283,6 +290,12 @@ class Unshaped(AstNode):
 
 
 class Terminal(AstNode):
+    """This is a thin node wrapper for a string.
+
+    The node is transparent when not in debug mode.
+    In debug mode, it keeps the link to the corresponding ANTLR node.
+    """
+
     _fields_spec = ["value"]
     DEBUG = False
     DEBUG_INSTANCES = []
@@ -304,23 +317,17 @@ class BaseAstVisitor(ParseTreeVisitor):
     def visitChildren(self, node, predicate=None, simplify=True):
         """This is the default visiting behaviour
 
-        :param node: current node
-        :param predicate: skip a child if this evaluates to false
+        :param node: current ANTLR node
+        :param predicate: skip a child if this function evaluates to false for the child
         :param simplify: whether the result of the visited children should be combined if possible
         :return:
         """
         result = self.defaultResult()
-        n = node.getChildCount()
-        for i in range(n):
+        for child in node.getChildren(predicate):
             if not self.shouldVisitNextChild(node, result):
-                return
+                return result
 
-            c = node.getChild(i)
-            if predicate and not predicate(c):
-                continue
-
-            childResult = c.accept(self)
-            result = self.aggregateResult(result, childResult)
+            result = self.aggregateResult(result, self.visit(child))
 
         return self.result_to_ast(node, result, simplify=simplify)
 
@@ -394,5 +401,19 @@ class BaseAstVisitor(ParseTreeVisitor):
         else:
             result = field
         return result
+
+    def visit_path(self, ctx, path):
+        result = ctx
+        for i in range(len(path)):
+            result = getattr(result, path[i], None)
+            if result is None:
+                break
+            elif i == len(path) - 1:
+                result = self.visit_field(ctx, result)
+            else:
+                result = result()
+
+        return result
+
 
     _remove_terminal = []
