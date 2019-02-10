@@ -381,7 +381,7 @@ class BaseAstVisitor(ParseTreeVisitor):
     def visitErrorNode(self, node):
         return None
 
-    def visit_field(self, ctx, field):
+    def get_field(self, ctx, field):
         # when not alias needs to be called
         if callable(field):
             field = field()
@@ -393,7 +393,10 @@ class BaseAstVisitor(ParseTreeVisitor):
             field = next(
                 filter(lambda c: getattr(c, "symbol", None) is field, ctx.children)
             )
+        return field
 
+    def visit_field(self, ctx, field):
+        field = self.get_field(ctx, field)
         if isinstance(field, list):
             result = [self.visit(el) for el in field]
         elif field:
