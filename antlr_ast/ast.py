@@ -297,7 +297,7 @@ class Terminal(AstNode):
     """
 
     _fields_spec = ["value"]
-    DEBUG = False
+    DEBUG = True
     DEBUG_INSTANCES = []
 
     def __new__(cls, *args, **kwargs):
@@ -311,6 +311,10 @@ class Terminal(AstNode):
     def __str__(self):
         # currently just used for better formatting in debugger
         return self.value
+
+    def __repr__(self):
+        # used for serialization
+        return "'{}'".format(self.value)
 
 
 class BaseAstVisitor(ParseTreeVisitor):
@@ -382,6 +386,7 @@ class BaseAstVisitor(ParseTreeVisitor):
         return None
 
     def get_field(self, ctx, field):
+        # future todo: split get_field
         # when not alias needs to be called
         if callable(field):
             field = field()
@@ -399,6 +404,9 @@ class BaseAstVisitor(ParseTreeVisitor):
         field = self.get_field(ctx, field)
         if isinstance(field, list):
             result = [self.visit(el) for el in field]
+            # simplify arg could be used for * unpacking field spec (e.g. select.order_by)
+            # if simplify and len(result) == 1:
+            #     result = result[0]
         elif field:
             result = self.visit(field)
         else:
@@ -418,5 +426,119 @@ class BaseAstVisitor(ParseTreeVisitor):
 
         return result
 
+
+class ObjectNode:
+    def __init__(self, fields, ctx):
+        self._fields_data = fields
+        self._ctx = ctx
+
+    def __repr__(self):
+        return str({"@type": self.__class__.__name__, **self._fields_data})
+
+    def __getattr__(self, item):
+        try:
+            return self._fields_data[item]
+        except KeyError:
+            raise AttributeError
+
+
+class ObjectAstVisitor(BaseAstVisitor):
+    """PROTOTYPE: Visitor that creates a high level tree
+
+    ~ ANTLR tree serializer
+
+    TODO:
+    - [done] support labels
+    - make compatible with AST: _fields = () (should only every child once)
+    - include child_index to filter unique elements + order
+    - memoize dynamic classes, to have list + make instance checks work?
+    - flatten nested list (see select with dynamic clause ordering)
+    - eliminate overhead of alias parsing (store ref to child index, get children on alias access)
+    - grammar must use lexer or grammar rules for elements that should be in the tree
+      and literals for elements that cannot
+    - [done] alternative dynamic class naming:
+      - pass parse start to visitor constructor, use as init for self.current_node
+      - set self.current_node to field.__name__ before self.visit_field
+      - use self.current_node to create dynamic classes
+      (does not use #RuleAlias names in grammar)
+      (other approach: transforming returned dict, needs more work for arrays + top level)
+
+    Higher order visitor (or integrated)
+    - allow node aliases (~ AstNode._rules) by dynamically creating a class inheriting from the dynamic node class
+      (multiple inheritance if node is alias for multiple nodes, class has combined _fields for AST compatibility
+    - allow field aliases using .aliases property with defaultdict(list) (~ AstNode._fields_spec)
+        - dynamic fields? (~ visit_path)
+
+    test code in parse:
+        from antlr_ast.ast import ObjectAstVisitor
+        tst = ObjectAstVisitor().visit(tree)
+    """
+
+    def visitChildren(self, node, predicate=None, simplify=True):
+        fields = self.get_fields(node)
+        return self.visit_fields(node, fields, simplify)
+
+    def visit_fields(self, ctx, fields, simplify):
+        field_dict = {}
+        for field_name in fields:
+            field = getattr(ctx, field_name, None)
+            value = self.visit_field(ctx, field)
+            if value is not None:
+                if not isinstance(value, (dict, list)) or len(value) > 0:
+                    field_dict[field_name] = value
+
+                    # [old] dynamically create classes for nodes
+                    # if isinstance(value, dict):
+                    #     cls = type(field.__name__, (ObjectNode,), {})
+                    #     cls_ctx = field() if callable(field) else field
+                    #     instance = cls(value, cls_ctx)
+                    #     field_dict[field.__name__] = instance
+
+        cls_name = type(ctx).__name__.split('Context')[0]
+        cls = type(cls_name, (ObjectNode,), {'_fields': tuple(fields)})
+        instance = cls(field_dict, ctx)
+
+        # simplifies tree, but loses intermediate path
+        if simplify and len(field_dict) == 1:
+            instance = list(field_dict.values())[0]
+
+        return instance
+
+    @staticmethod
+    def get_labels(ctx):
+        labels = [
+            label for label in ctx.__dict__ if
+            label not in ['children', 'exception', 'invokingState', 'parentCtx', 'parser', 'start', 'stop']
+        ]
+        return labels
+
+    @staticmethod
+    def get_fields(ctx):
+        # vars(ctx)
+        # dir(ctx)
+        # dir(super(type(ctx), ctx))
+
+        # this does not include labels
+        # only rule names and token names are in the tree (not literals)
+        fields = [
+            field
+            for field in type(ctx).__dict__
+            if not field.startswith("__")
+            and field not in ["accept", "enterRule", "exitRule", "getRuleIndex"]
+        ]
+        return fields
+
+        # [old] this code should be cleaner: recursive loop over bases
+        # (all fields are functions / properties on parser?
+        # return [
+        #     field
+        #     for field in type(ctx).__dict__
+        #     if field
+        #     not in {
+        #         **dict(type(ctx).__bases__[0].__dict__),
+        #         **dict(type(ctx).__bases__[0].__bases__[0].__dict__),
+        #         **dict(type(ctx).__bases__[0].__bases__[0].__bases__[0].__dict__),
+        #     }
+        # ]
 
     _remove_terminal = []
