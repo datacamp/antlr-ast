@@ -1,5 +1,5 @@
 import copy
-from ast import AST
+from ast import AST, NodeTransformer
 from antlr4.Token import CommonToken
 from antlr4 import CommonTokenStream, ParserRuleContext, ParseTreeVisitor
 from antlr_ast.inputstream import CaseTransformInputStream
@@ -73,6 +73,7 @@ class AstNode(AST, metaclass=AstNodeMeta):
     # defines class properties
     # - as a property name to copy from ANTLR nodes
     # - as a property name defined in terms of (nested) ANTLR node properties
+    # the field will be set to the first definition that is not undefined
     _fields_spec = []
 
     # Defines which ANTLR nodes to convert to this node. Elements can be:
@@ -312,8 +313,10 @@ class Terminal(AstNode):
         # currently just used for better formatting in debugger
         return self.value
 
+    def to_json(self):
+        return str(self)
+
     def __repr__(self):
-        # used for serialization
         return "'{}'".format(self.value)
 
 
@@ -385,23 +388,8 @@ class BaseAstVisitor(ParseTreeVisitor):
     def visitErrorNode(self, node):
         return None
 
-    def get_field(self, ctx, field):
-        # future todo: split get_field
-        # when not alias needs to be called
-        if callable(field):
-            field = field()
-        # when alias set on token, need to go from CommonToken -> Terminal Node
-        elif isinstance(field, CommonToken):
-            # giving a name to lexer rules sets it to a token,
-            # rather than the terminal node corresponding to that token
-            # so we need to find it in children
-            field = next(
-                filter(lambda c: getattr(c, "symbol", None) is field, ctx.children)
-            )
-        return field
-
     def visit_field(self, ctx, field):
-        field = self.get_field(ctx, field)
+        field = get_field(ctx, field)
         if isinstance(field, list):
             result = [self.visit(el) for el in field]
             # simplify arg could be used for * unpacking field spec (e.g. select.order_by)
@@ -416,6 +404,7 @@ class BaseAstVisitor(ParseTreeVisitor):
     def visit_path(self, ctx, path):
         result = ctx
         for i in range(len(path)):
+            # future todo: move to get_field (str arg default or with str check)
             result = getattr(result, path[i], None)
             if result is None:
                 break
@@ -427,34 +416,152 @@ class BaseAstVisitor(ParseTreeVisitor):
         return result
 
 
-class ObjectNode:
-    def __init__(self, fields, ctx):
-        self._fields_data = fields
+class FieldNode(AST):
+    def __init__(self, children, field_references, label_references, ctx=None):
+        self.children = children
+
+        self._field_references = field_references
+        self.children_by_field = materialize(self._field_references, self.children)
+
+        self._label_references = label_references
+        self.children_by_label = materialize(self._label_references, self.children)
+
         self._ctx = ctx
 
-    def __repr__(self):
-        return str({"@type": self.__class__.__name__, **self._fields_data})
+    subclasses = {}
+
+    _priority = 2
+
+    @classmethod
+    def create(cls, ctx, children):
+        field_names = get_field_names(ctx)
+        children_by_field = get_field_references(ctx, field_names)
+
+        label_names = get_label_names(ctx)
+        children_by_label = get_field_references(ctx, label_names)
+
+        cls_name = type(ctx).__name__.split("Context")[0]
+        subclass = cls.get_node_cls(cls_name, field_names)
+        return subclass(children, children_by_field, children_by_label, ctx)
+
+    @classmethod
+    def get_node_cls(cls, cls_name, field_names):
+        if cls_name not in cls.subclasses:
+            cls.subclasses[cls_name] = type(
+                cls_name, (FieldNode,), {"_fields": tuple(field_names)}
+            )
+        return cls.subclasses[cls_name]
 
     def __getattr__(self, item):
         try:
-            return self._fields_data[item]
+            return self.children_by_label.get(item, self.children_by_field.get(item))
         except KeyError:
             raise AttributeError
 
+    def to_json(self):
+        return {
+            "@type": self.__class__.__name__,
+            "@fields": self._fields,
+            "field_references": self._field_references,
+            "label_references": self._label_references,
+            "children": self.children,
+        }
 
-class ObjectAstVisitor(BaseAstVisitor):
+    def __repr__(self):
+        return str({**self.children_by_field, **self.children_by_label})
+
+
+class AliasNode(FieldNode, metaclass=AstNodeMeta):
+    # todo: look at AstNode methods
+    _fields_spec = ()
+    _rules = []
+    _priority = 1
+
+    def __init__(self, node: FieldNode, fields=None):
+        # todo: keep reference to node?
+        super().__init__(node.children, node._field_references, node._label_references)
+
+        fields = fields or {}
+        for field, value in fields.items():
+            setattr(self, field, value)
+
+    @classmethod
+    def from_spec(cls, node):
+        # todo: no fields_spec argument as before
+        field_dict = {}
+        for field_spec in cls._fields_spec:
+            name, path = parse_field_spec(field_spec)
+
+            # _fields_spec can contain field multiple times
+            # e.g. x=a and x=b
+            if field_dict.get(name):
+                # or / elif behaviour
+                continue
+
+            # get node -----
+            field_dict[name] = cls.get_path(node, path)
+        return cls(node, field_dict)
+
+    @staticmethod
+    def get_path(node, path):
+        # todo: can be defined on FieldNode too
+        result = node
+        for i in range(len(path)):
+            result = getattr(result, path[i], None)
+            if result is None:
+                break
+
+        return result
+
+
+# TODO: this is a demo
+class Script(AliasNode):
+    _fields_spec = ("body",)
+    _rules = ["Sql_script"]
+
+    @classmethod
+    def from_body(cls, node):
+        # basic alias
+        obj = cls(node)
+        # basic alias + fields from spec
+        obj = cls.from_spec(node)
+
+        obj.body = node.unit_statement + node.sql_plus_command
+
+        return obj
+
+
+class AliasVisitor(NodeTransformer):
+    # todo: explicit or dynamic (abstracts function, visit, return)?
+    def visit_Sql_script(self, node):
+        # default transformer
+        alias = Script.from_spec(node)
+        # custom transformer
+        alias = Script.from_body(node)
+
+        self.generic_visit(alias)
+        return alias
+
+
+class FieldAstVisitor(BaseAstVisitor):
     """PROTOTYPE: Visitor that creates a high level tree
 
     ~ ANTLR tree serializer
+    + automatic node creation using field and alias detection
+    + alias nodes can work on tree without (ANTLR) visitor
+
+    Used from BaseAstVisitor: visitTerminal, visitErrorNode
 
     TODO:
     - [done] support labels
-    - make compatible with AST: _fields = () (should only every child once)
-    - include child_index to filter unique elements + order
-    - memoize dynamic classes, to have list + make instance checks work?
+    - [done] make compatible with AST: _fields = () (should only every child once)
+    - [done] include child_index to filter unique elements + order
+    - [done] memoize dynamic classes, to have list + make instance checks work
     - flatten nested list (see select with dynamic clause ordering)
-    - eliminate overhead of alias parsing (store ref to child index, get children on alias access)
-    - grammar must use lexer or grammar rules for elements that should be in the tree
+    - combine terminals / error nodes
+    - serialize highlight info
+    - [done] eliminate overhead of alias parsing (store ref to child index, get children on alias access)
+    - [necessary?] grammar must use lexer or grammar rules for elements that should be in the tree
       and literals for elements that cannot
     - [done] alternative dynamic class naming:
       - pass parse start to visitor constructor, use as init for self.current_node
@@ -464,57 +571,127 @@ class ObjectAstVisitor(BaseAstVisitor):
       (other approach: transforming returned dict, needs more work for arrays + top level)
 
     Higher order visitor (or integrated)
-    - allow node aliases (~ AstNode._rules) by dynamically creating a class inheriting from the dynamic node class
+    - [alternative] allow node aliases (~ AstNode._rules) by dynamically creating a class inheriting from the dynamic node class
       (multiple inheritance if node is alias for multiple nodes, class has combined _fields for AST compatibility
-    - allow field aliases using .aliases property with defaultdict(list) (~ AstNode._fields_spec)
+    - [alternative] allow field aliases using .aliases property with defaultdict(list) (~ AstNode._fields_spec)
         - dynamic fields? (~ visit_path)
 
     test code in parse:
-        from antlr_ast.ast import ObjectAstVisitor
-        tst = ObjectAstVisitor().visit(tree)
+        from antlr_ast.ast import FieldAstVisitor
+        field_tree = FieldAstVisitor().visit(tree)
+
+        import ast
+        nodes = [el for el in ast.walk(field_tree)]
+        import json
+        json_str = json.dumps(field_tree, default=lambda o: o.to_json())
+
+        from antlr_ast.ast import AliasVisitor
+        alias_tree = AliasVisitor().visit(field_tree)
     """
 
     def visitChildren(self, node, predicate=None, simplify=True):
-        fields = self.get_field_names(node)
-        return self.visit_fields(node, fields, simplify)
+        children = [self.visit(child) for child in node.children]
 
-    def visit_fields(self, ctx, fields, simplify):
-        field_dict = {}
-        for field_name in fields:
-            field = getattr(ctx, field_name, None)
-            value = self.visit_field(ctx, field)
-            if value is not None:
-                if not isinstance(value, (dict, list)) or len(value) > 0:
-                    field_dict[field_name] = value
-
-        cls_name = type(ctx).__name__.split('Context')[0]
-        cls = type(cls_name, (ObjectNode,), {'_fields': tuple(fields)})
-        instance = cls(field_dict, ctx)
+        instance = FieldNode.create(node, children)
 
         # simplifies tree, but loses intermediate path
-        if simplify and len(field_dict) == 1:
-            instance = list(field_dict.values())[0]
+        if simplify and len(instance.children_by_field) == 1:
+            instance = list(instance.children_by_field.values())[0]
 
         return instance
 
-    @staticmethod
-    def get_labels(ctx):
-        labels = [
-            label for label in ctx.__dict__ if
-            label not in ['children', 'exception', 'invokingState', 'parentCtx', 'parser', 'start', 'stop']
-        ]
-        return labels
 
-    @staticmethod
-    def get_field_names(ctx):
-        # this does not include labels
-        # only rule names and token names are in the tree (not literals)
-        fields = [
-            field
-            for field in type(ctx).__dict__
-            if not field.startswith("__")
-            and field not in ["accept", "enterRule", "exitRule", "getRuleIndex"]
-        ]
-        return fields
+# ANTLR helpers
 
-    _remove_terminal = []
+
+def get_field(ctx, field):
+    """Helper to get the value of a field"""
+    # field can be a string or a node attribute
+    if isinstance(field, str):
+        field = getattr(ctx, field, None)
+    # when not alias needs to be called
+    if callable(field):
+        field = field()
+    # when alias set on token, need to go from CommonToken -> Terminal Node
+    elif isinstance(field, CommonToken):
+        # giving a name to lexer rules sets it to a token,
+        # rather than the terminal node corresponding to that token
+        # so we need to find it in children
+        field = next(
+            filter(lambda c: getattr(c, "symbol", None) is field, ctx.children)
+        )
+    return field
+
+
+def get_field_references(ctx, field_names, simplify=False):
+    """
+    Create a mapping from fields to corresponding child indices
+    :param ctx: ANTLR node
+    :param field_names: list of strings
+    :param simplify: if True, omits fields with empty lists
+        this makes it easy to detect nodes that only use a single field
+        but it requires more work to combine fields that can be empty
+    :return: mapping str -> int | int[]
+    """
+    field_dict = {}
+    for field_name in field_names:
+        field = get_field(ctx, field_name)
+        if field is not None and (
+            not isinstance(field, list) or not simplify or len(field) > 0
+        ):
+            if isinstance(field, list):
+                value = [ctx.children.index(el) for el in field]
+            else:
+                value = ctx.children.index(field)
+            field_dict[field_name] = value
+    return field_dict
+
+
+def materialize(reference_dict, source):
+    """
+    Replace indices by actual elements in a reference mapping
+    :param reference_dict: mapping str -> int | int[]
+    :param source: list of elements
+    :return: mapping str -> element | element[]
+    """
+    materialized_dict = {}
+    for field in reference_dict:
+        reference = reference_dict[field]
+        if isinstance(reference, list):
+            materialized_dict[field] = [source[index] for index in reference]
+        else:
+            materialized_dict[field] = source[reference]
+    return materialized_dict
+
+
+def get_field_names(ctx):
+    """Get fields defined in an ANTLR context for a parser rule"""
+    # this does not include labels
+    # only rule names and token names are in the tree (not literals)
+    fields = [
+        field
+        for field in type(ctx).__dict__
+        if not field.startswith("__")
+        and field not in ["accept", "enterRule", "exitRule", "getRuleIndex"]
+    ]
+    return fields
+
+
+def get_label_names(ctx):
+    """Get labels defined in an ANTLR context for a parser rule"""
+    labels = [
+        label
+        for label in ctx.__dict__
+        if not label.startswith("_")
+        and label
+        not in [
+            "children",
+            "exception",
+            "invokingState",
+            "parentCtx",
+            "parser",
+            "start",
+            "stop",
+        ]
+    ]
+    return labels
