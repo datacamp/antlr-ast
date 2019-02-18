@@ -1,13 +1,15 @@
 import copy
+import json
+import warnings
+
+from functools import reduce
+from collections import OrderedDict, namedtuple
+from typing import List
+
 from ast import AST, NodeTransformer
 from antlr4.Token import CommonToken
 from antlr4 import CommonTokenStream, ParserRuleContext, ParseTreeVisitor
 from antlr_ast.inputstream import CaseTransformInputStream
-import json
-
-from collections import OrderedDict, namedtuple
-from typing import List
-import warnings
 
 
 def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
@@ -31,13 +33,13 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
 
 # todo: usage? (ast viewer can use new tree serialization)
 def dump_node(obj):
-    if isinstance(obj, AstNode):
+    if isinstance(obj, BaseNode):
         fields = OrderedDict()
         for name in obj._fields:
             attr = getattr(obj, name, None)
             if attr is None:
                 continue
-            elif isinstance(attr, AstNode):
+            elif isinstance(attr, BaseNode):
                 fields[name] = dump_node(attr)
             elif isinstance(attr, list):
                 fields[name] = [dump_node(x) for x in attr]
@@ -48,6 +50,14 @@ def dump_node(obj):
         return [dump_node(x) for x in obj]
     else:
         return obj
+
+
+def flatten(acc, el):
+    if el is None:
+        el = []
+    elif not isinstance(el, list):
+        el = [el]
+    return acc + el
 
 
 FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
@@ -77,7 +87,7 @@ def bind_to_visitor(visitor_cls, rule_name, visitor):
 
 
 def rule_to_visitor_name(rule_name):
-    return "visit{}".format(rule_name[0].upper() + rule_name[1:])
+    return "visit_{}".format(rule_name[0].upper() + rule_name[1:])
 
 
 # Speaker class ---------------------------------------------------------------
@@ -187,6 +197,15 @@ class BaseNode(AST):
     # whether to descend for selection (greater descends into lower)
     _priority = 2
 
+    # getattr: return None vs raising for nonexistent attr
+    # in Transformer conditionals:
+    # - getattr(obj, attr, None) works with both
+    # - hasattr(obj, attr) if strict
+    # - obj.attr if not strict
+    _strict = False
+
+    _simplify = False
+
     @classmethod
     def create(cls, ctx, children):
         field_names = get_field_names(ctx)
@@ -207,14 +226,64 @@ class BaseNode(AST):
             )
         return cls.subclasses[cls_name]
 
-    def __getattr__(self, item):
-        try:
-            return self.children_by_label.get(item, self.children_by_field.get(item))
-        except KeyError:
-            raise AttributeError
+    def __getattr__(self, name):
+        fallback = None
+        if self._strict:
+            fallback = AttributeError
 
-    def get_text(self, text):
-        return text[self._ctx.start.start : self._ctx.stop.stop + 1]
+        result = self.children_by_label.get(
+            name, self.children_by_field.get(name, fallback)
+        )
+        if isinstance(result, AttributeError):
+            raise result
+
+        if self._simplify:
+            result = self.simplify_subtree(result)
+
+        return result
+
+    @classmethod
+    def combine(cls, *fields):
+        """Combine fields
+
+        Creates a list field from other fields
+        Filters None and combines other elements in a flat list
+        Use in transformer methods.
+        """
+        result = reduce(flatten, fields, [])
+        if cls._simplify:
+            result = cls.simplify_subtree(result)
+
+        return result
+
+    @classmethod
+    def simplify_subtree(cls, result):
+        """Recursively unpack single-item lists and objects where fields and labels only reference a single child"""
+        simplified = False
+        while not simplified:
+            if isinstance(result, cls):
+                attr_children = set(
+                    reduce(flatten, result._field_references.values(), [])
+                    + reduce(flatten, result._label_references.values(), [])
+                )
+                if len(attr_children) == 1:
+                    result = result.children[attr_children.pop()]
+                else:
+                    simplified = True
+            elif isinstance(result, list) and len(result) == 1:
+                result = result[0]
+            else:
+                simplified = True
+
+        return result
+
+    def get_text(self, full_text=None):
+        if full_text is None:
+            text = self._ctx.getText()
+        else:
+            text = full_text[self._ctx.start.start : self._ctx.stop.stop + 1]
+
+        return text
 
     def get_position(self):
         ctx = self._ctx
@@ -239,6 +308,10 @@ class BaseNode(AST):
         return str({**self.children_by_field, **self.children_by_label})
 
 
+# TODO: 
+AstNode = BaseNode
+
+
 class Terminal(BaseNode):
     """This is a thin node wrapper for a string.
 
@@ -256,7 +329,7 @@ class Terminal(BaseNode):
             cls.DEBUG_INSTANCES.append(instance)
             return instance
         else:
-            return args[0].get("value", "")
+            return args[0][0]
 
     def __str__(self):
         # currently just used for better formatting in debugger
@@ -270,7 +343,7 @@ class Terminal(BaseNode):
 
 
 class AliasNode(BaseNode, metaclass=AstNodeMeta):
-    # todo: look at AstNode methods
+    # TODO: look at AstNode methods
     # defines class properties
     # - as a property name to copy from ANTLR nodes
     # - as a property name defined in terms of (nested) ANTLR node properties
@@ -286,8 +359,6 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
 
     _priority = 1
 
-    _simplify = True
-
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls, *args, **kwargs)
         # necessary because AST implements this field
@@ -296,7 +367,9 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
 
     def __init__(self, node: BaseNode, fields=None):
         # todo: keep reference to node?
-        super().__init__(node.children, node._field_references, node._label_references)
+        super().__init__(
+            node.children, node._field_references, node._label_references, node._ctx
+        )
 
         fields = fields or {}
         for field, value in fields.items():
@@ -330,60 +403,59 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
             if result is None:
                 break
             elif cls._simplify:
-                while len(result.children_by_field) == 1:
-                    result = list(result.children_by_field.values())[0]
+                # TODO: alternative to getattr implementation
+                # custom visitors have to use get_path if they want simplification?
+                pass
 
         return result
 
     @classmethod
-    def bind_to_transformer(cls, visitor_cls, visit_method="from_spec"):
+    def bind_to_transformer(cls, transformer_cls, default_visit_method="from_spec"):
         for rule in cls._rules:
-            if not isinstance(rule, str):
+            if isinstance(rule, str):
+                visit_method = default_visit_method
+            else:
                 rule, visit_method = rule[:2]
             visitor = cls.get_transformer(visit_method)
-            bind_to_visitor(visitor_cls, rule, visitor)
+            bind_to_visitor(transformer_cls, rule, visitor)
 
     @classmethod
-    def get_transformer(cls, method):
-        visit_node = getattr(cls, method)
+    def get_transformer(cls, method_name):
+        """Get method to bind to visitor"""
+        visit_node = getattr(cls, method_name)
         assert callable(visit_node)
 
-        def visitor(self, node):
-            alias = visit_node(node)
-            self.generic_visit(alias)
+        def method(self, node):
+            return visit_node(node)
+
+        return method
+
+
+class AliasVisitor(NodeTransformer):
+    # TODO: test: if 'visit' in method, it has to be as 'visit_'
+    def __init__(self, transformer_visitor):
+        self.transformer_visitor = transformer_visitor
+
+    def __getattr__(self, item):
+        transformer = getattr(self.transformer_visitor, item)
+        if transformer is None:
+            raise AttributeError
+
+        def visitor(node):
+            alias = transformer(node)
+            if isinstance(alias, AliasNode):
+                self.generic_visit(alias)
+            else:
+                # visit BaseNode (e.g. result of Transformer method)
+                if isinstance(alias, list):
+                    # Transformer method can return array instead of node
+                    alias = [self.visit(el) for el in alias]  # TODO: test
+                elif isinstance(alias, BaseNode):
+                    alias = self.visit(alias)
+
             return alias
 
         return visitor
-
-
-# TODO: this is a demo
-# class Script(AliasNode):
-#     _fields_spec = ("body",)
-#     _rules = ["Sql_script"]
-#
-#     @classmethod
-#     def from_body(cls, node):
-#         # basic alias
-#         obj = cls(node)
-#         # basic alias + fields from spec
-#         obj = cls.from_spec(node)
-#
-#         obj.body = node.unit_statement + node.sql_plus_command
-#
-#         return obj
-
-
-class AliasTransformer(NodeTransformer):
-    pass
-    # todo: explicit or dynamic (abstracts function, visit, return)?
-    # def visit_Sql_script(self, node):
-    #     # default transformer
-    #     alias = Script.from_spec(node)
-    #     # custom transformer
-    #     alias = Script.from_body(node)
-    #
-    #     self.generic_visit(alias)
-    #     return alias
 
 
 class BaseAstVisitor(ParseTreeVisitor):
@@ -400,12 +472,13 @@ class BaseAstVisitor(ParseTreeVisitor):
     - [done] make compatible with AST: _fields = () (should only every child once)
     - [done] include child_index to filter unique elements + order
     - [done] memoize dynamic classes, to have list + make instance checks work
-    - [done] tree simplification as part of AliasNode
+    - tree simplification as part of AliasNode
     - flatten nested list (see select with dynamic clause ordering)
     - combine terminals / error nodes
     - serialize highlight info
     - make compatible with AstNode & AstModule in protowhat (+ shellwhat usage: bashlex + osh parser)
         - combining fields & labels dicts needed?
+    - use exact ANTLR names in _rules (capitalize name without changing other casing)
     - [done] eliminate overhead of alias parsing (store ref to child index, get children on alias access)
     - [necessary?] grammar must use lexer or grammar rules for elements that should be in the tree
       and literals for elements that cannot
@@ -436,7 +509,8 @@ class BaseAstVisitor(ParseTreeVisitor):
     """
 
     def visitChildren(self, node, predicate=None, simplify=False):
-        children = [self.visit(child) for child in node.children]
+        # children is None if all parts of a grammar rule are optional and absent
+        children = [self.visit(child) for child in node.children or []]
 
         instance = BaseNode.create(node, children)
 
@@ -481,7 +555,7 @@ def get_field_references(ctx, field_names, simplify=False):
     Create a mapping from fields to corresponding child indices
     :param ctx: ANTLR node
     :param field_names: list of strings
-    :param simplify: if True, omits fields with empty lists
+    :param simplify: if True, omits fields with empty lists or None
         this makes it easy to detect nodes that only use a single field
         but it requires more work to combine fields that can be empty
     :return: mapping str -> int | int[]
@@ -489,13 +563,17 @@ def get_field_references(ctx, field_names, simplify=False):
     field_dict = {}
     for field_name in field_names:
         field = get_field(ctx, field_name)
-        if field is not None and (
-            not isinstance(field, list) or not simplify or len(field) > 0
+        if (
+            not simplify
+            or field is not None
+            and (not isinstance(field, list) or len(field) > 0)
         ):
             if isinstance(field, list):
                 value = [ctx.children.index(el) for el in field]
-            else:
+            elif field is not None:
                 value = ctx.children.index(field)
+            else:
+                value = None
             field_dict[field_name] = value
     return field_dict
 
@@ -512,20 +590,22 @@ def materialize(reference_dict, source):
         reference = reference_dict[field]
         if isinstance(reference, list):
             materialized_dict[field] = [source[index] for index in reference]
-        else:
+        elif reference is not None:
             materialized_dict[field] = source[reference]
+        else:
+            materialized_dict[field] = None
     return materialized_dict
 
 
 def get_field_names(ctx):
     """Get fields defined in an ANTLR context for a parser rule"""
-    # this does not include labels
-    # only rule names and token names are in the tree (not literals)
+    # this does not include labels and literals, only rule names and token names
+    # todo: check ANTLR parser template for full exclusion list
     fields = [
         field
         for field in type(ctx).__dict__
         if not field.startswith("__")
-        and field not in ["accept", "enterRule", "exitRule", "getRuleIndex"]
+        and field not in ["accept", "enterRule", "exitRule", "getRuleIndex", "copyFrom"]
     ]
     return fields
 
