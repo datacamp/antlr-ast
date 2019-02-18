@@ -52,14 +52,6 @@ def dump_node(obj):
         return obj
 
 
-def flatten(acc, el):
-    if el is None:
-        el = []
-    elif not isinstance(el, list):
-        el = [el]
-    return acc + el
-
-
 FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
 
 
@@ -250,7 +242,7 @@ class BaseNode(AST):
         Filters None and combines other elements in a flat list
         Use in transformer methods.
         """
-        result = reduce(flatten, fields, [])
+        result = reduce(cls.extend_node_list, fields, [])
         if cls._simplify:
             result = cls.simplify_subtree(result)
 
@@ -263,8 +255,8 @@ class BaseNode(AST):
         while not simplified:
             if isinstance(result, cls):
                 attr_children = set(
-                    reduce(flatten, result._field_references.values(), [])
-                    + reduce(flatten, result._label_references.values(), [])
+                    reduce(cls.extend_node_list, result._field_references.values(), [])
+                    + reduce(cls.extend_node_list, result._label_references.values(), [])
                 )
                 if len(attr_children) == 1:
                     result = result.children[attr_children.pop()]
@@ -276,6 +268,15 @@ class BaseNode(AST):
                 simplified = True
 
         return result
+
+    @staticmethod
+    def extend_node_list(acc, new):
+        """Extend accumulator with Node(s) from new"""
+        if new is None:
+            new = []
+        elif not isinstance(new, list):
+            new = [new]
+        return acc + new
 
     def get_text(self, full_text=None):
         if full_text is None:
