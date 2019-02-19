@@ -251,12 +251,19 @@ class BaseNode(AST):
     @classmethod
     def simplify_subtree(cls, result):
         """Recursively unpack single-item lists and objects where fields and labels only reference a single child"""
+        # TODO: stop at nodes that can be transformed?
+        # -> have a visitor method on Transformer
+        # -> make Transformer available on BaseNode
+        # implicit because no node needed if only single child?
+        # no: renaming of node & field where only one of available fields is set
         simplified = False
         while not simplified:
-            if isinstance(result, cls):
+            if isinstance(result, BaseNode) and not isinstance(result, Terminal):
                 attr_children = set(
                     reduce(cls.extend_node_list, result._field_references.values(), [])
-                    + reduce(cls.extend_node_list, result._label_references.values(), [])
+                    + reduce(
+                        cls.extend_node_list, result._label_references.values(), []
+                    )
                 )
                 if len(attr_children) == 1:
                     result = result.children[attr_children.pop()]
@@ -309,7 +316,7 @@ class BaseNode(AST):
         return str({**self.children_by_field, **self.children_by_label})
 
 
-# TODO: 
+# TODO:
 AstNode = BaseNode
 
 
