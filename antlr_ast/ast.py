@@ -196,7 +196,12 @@ class BaseNode(AST):
     # - obj.attr if not strict
     _strict = False
 
-    _simplify = False
+    _simplify = True
+
+    @staticmethod
+    def prevent_simplify(node):
+        """Method to override that can prevent simplifying certain nodes (e.g. nodes that have a transform method)"""
+        return False
 
     @classmethod
     def create(cls, ctx, children):
@@ -258,7 +263,7 @@ class BaseNode(AST):
         # no: renaming of node & field where only one of available fields is set
         simplified = False
         while not simplified:
-            if isinstance(result, BaseNode) and not isinstance(result, Terminal):
+            if isinstance(result, BaseNode) and not isinstance(result, Terminal) and not cls.prevent_simplify(result):
                 attr_children = set(
                     reduce(cls.extend_node_list, result._field_references.values(), [])
                     + reduce(
@@ -407,7 +412,13 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         # todo: can be defined on FieldNode too
         result = node
         for i in range(len(path)):
-            result = getattr(result, path[i], None)
+            if i == len(path) - 1:
+                result = getattr(result, path[i], None)
+            else:
+                # avoid (unpredictable) simplification in path (before the end)
+                result = result.children_by_label.get(
+                    path[i], result.children_by_field.get(path[i], None)
+                )
             if result is None:
                 break
             elif cls._simplify:
@@ -443,6 +454,7 @@ class AliasVisitor(NodeTransformer):
     # TODO: test: if 'visit' in method, it has to be as 'visit_'
     def __init__(self, transformer_visitor):
         self.transformer_visitor = transformer_visitor
+        BaseNode.prevent_simplify = self.prevent_simplify
 
     def __getattr__(self, item):
         transformer = getattr(self.transformer_visitor, item)
@@ -464,6 +476,10 @@ class AliasVisitor(NodeTransformer):
             return alias
 
         return visitor
+
+    def prevent_simplify(self, node):
+        return getattr(self.transformer_visitor, "visit_{}".format(type(node).__name__), False)
+
 
 
 class BaseAstVisitor(ParseTreeVisitor):
