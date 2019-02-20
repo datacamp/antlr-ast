@@ -186,6 +186,8 @@ class BaseNode(AST):
 
     subclasses = {}
 
+    _fields = ()
+
     # whether to descend for selection (greater descends into lower)
     _priority = 2
 
@@ -196,7 +198,7 @@ class BaseNode(AST):
     # - obj.attr if not strict
     _strict = False
 
-    _simplify = True
+    _simplify = False
 
     @staticmethod
     def prevent_simplify(node):
@@ -256,11 +258,12 @@ class BaseNode(AST):
     @classmethod
     def simplify_subtree(cls, result):
         """Recursively unpack single-item lists and objects where fields and labels only reference a single child"""
-        # TODO: stop at nodes that can be transformed?
+        # done: stop at nodes that can be transformed?
         # -> have a visitor method on Transformer
         # -> make Transformer available on BaseNode
         # implicit because no node needed if only single child?
         # no: renaming of node & field where only one of available fields is set
+        # done: handle Terminal.DEBUG = False
         simplified = False
         while not simplified:
             if isinstance(result, BaseNode) and not isinstance(result, Terminal) and not cls.prevent_simplify(result):
@@ -332,8 +335,8 @@ class Terminal(BaseNode):
     In debug mode, it keeps the link to the corresponding ANTLR node.
     """
 
-    _fields_spec = ["value"]
-    DEBUG = True
+    _fields = tuple(["value"])
+    DEBUG = False
     DEBUG_INSTANCES = []
 
     def __new__(cls, *args, **kwargs):
@@ -479,6 +482,16 @@ class AliasVisitor(NodeTransformer):
 
     def prevent_simplify(self, node):
         return getattr(self.transformer_visitor, "visit_{}".format(type(node).__name__), False)
+
+    def visit_Terminal(self, terminal):
+        return self.terminal_visitor(terminal)
+
+    def visit_str(self, string):
+        return self.terminal_visitor(string)
+
+    def terminal_visitor(self, terminal):
+        """Helper to transparently handle Terminal"""
+        return terminal
 
 
 
