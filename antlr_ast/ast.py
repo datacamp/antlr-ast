@@ -6,9 +6,9 @@ from functools import reduce
 from collections import OrderedDict, namedtuple
 from typing import List
 
-from ast import AST, NodeTransformer, iter_fields
+from ast import AST, NodeTransformer
 from antlr4.Token import CommonToken
-from antlr4 import CommonTokenStream, ParserRuleContext, ParseTreeVisitor
+from antlr4 import CommonTokenStream, ParseTreeVisitor
 from antlr_ast.inputstream import CaseTransformInputStream
 
 
@@ -198,20 +198,6 @@ class BaseNode(AST):
     # - obj.attr if not strict
     _strict = False
 
-    _simplify = False
-
-    # Stop simplifying if function of node evaluates to False
-    simplify_predicate = None
-
-    @staticmethod
-    def _simplify_all(_):
-        """Default simplify predicate"""
-        return True
-
-    @classmethod
-    def simplify_allowed(cls, node):
-        return (cls.simplify_predicate or cls._simplify_all)(node)
-
     @classmethod
     def create(cls, ctx, children):
         field_names = get_field_names(ctx)
@@ -243,9 +229,6 @@ class BaseNode(AST):
         if isinstance(result, AttributeError):
             raise result
 
-        if self._simplify:
-            result = self.simplify_subtree(result)
-
         return result
 
     @classmethod
@@ -257,44 +240,6 @@ class BaseNode(AST):
         Use in transformer methods.
         """
         result = reduce(cls.extend_node_list, fields, [])
-        if cls._simplify:
-            result = cls.simplify_subtree(result)
-
-        return result
-
-    @classmethod
-    def simplify_subtree(cls, result):
-        """Recursively unpack single-item lists and objects where fields and labels only reference a single child"""
-        # done: stop at nodes that can be transformed?
-        #  -> have a visitor method on Transformer
-        #  -> make Transformer available on BaseNode
-        #  implicit because no node needed if only single child?
-        #  no: renaming of node & field where only one of available fields is set
-        # done: handle Terminal.DEBUG = False
-        # TODO: implement as extra visitor layer
-        #  -> simplify_predicate hook and AliasVisitor argument no longer needed
-        # TODO: remove while: tail recursion + return where loop is done
-        simplified = False
-        while not simplified:
-            if isinstance(result, BaseNode) and not isinstance(result, Terminal) and cls.simplify_allowed(result):
-                attr_children = set(
-                    reduce(cls.extend_node_list, result._field_references.values(), [])
-                    + reduce(
-                        cls.extend_node_list, result._label_references.values(), []
-                    )
-                )
-                if len(attr_children) == 1:
-                    result = result.children[attr_children.pop()]
-                else:
-                    # for field in result._fields:
-                    #     setattr(result, field, cls.simplify_subtree(getattr(result, field)))
-                    simplified = True
-            elif isinstance(result, list) and len(result) == 1:
-                result = result[0]
-            else:
-                if isinstance(result, list):
-                    result = [cls.simplify_subtree(el) for el in result]
-                simplified = True
 
         return result
 
@@ -438,10 +383,6 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
                 )
             if result is None:
                 break
-            elif cls._simplify:
-                # TODO: alternative to getattr implementation
-                #  custom visitors have to use get_path if they want simplification?
-                pass
 
         return result
 
@@ -472,20 +413,6 @@ class AliasVisitor(NodeTransformer):
     def __init__(self, transformer_visitor):
         self.transformer_visitor = transformer_visitor
 
-    def visit_with_simplify(self, node):
-        def prevent_alias_simplify(node):
-            return not getattr(self.transformer_visitor, "visit_{}".format(type(node).__name__), False)
-
-        BaseNode._simplify = True
-        BaseNode.simplify_predicate = prevent_alias_simplify
-
-        result = self.visit(node)
-
-        BaseNode.simplify_predicate = None
-        BaseNode._simplify = False
-
-        return result
-
     def __getattr__(self, item):
         transformer = getattr(self.transformer_visitor, item)
         if transformer is None:
@@ -507,30 +434,6 @@ class AliasVisitor(NodeTransformer):
 
         return visitor
 
-    # def generic_visit(self, node):
-    #     for field, old_value in iter_fields(node):
-    #         if isinstance(old_value, list):
-    #             new_values = []
-    #             for value in old_value:
-    #                 if isinstance(value, AST):
-    #                     value = self.visit(value)
-    #                     if value is None:
-    #                         continue
-    #                     elif not isinstance(value, AST):
-    #                         new_values.extend(value)
-    #                         continue
-    #                 new_values.append(value)
-    #             # don't override the dynamically returned field values, but set the field
-    #             # old_value[:] = new_values
-    #             setattr(node, field, new_values)
-    #         elif isinstance(old_value, AST):
-    #             new_node = self.visit(old_value)
-    #             if new_node is None:
-    #                 delattr(node, field)
-    #             else:
-    #                 setattr(node, field, new_node)
-    #     return node
-
     def visit_Terminal(self, terminal):
         return self.terminal_visitor(terminal)
 
@@ -542,47 +445,32 @@ class AliasVisitor(NodeTransformer):
         return terminal
 
 
-from copy import copy
+def simplify(tree, in_list=False):
+    """Recursively unpack single-item lists and objects where fields and labels only reference a single child
 
-
-def simplify(subtree):
-    # result = subtree  # copy.copy(subtree)  # deep?
-    if isinstance(subtree, BaseNode) and not isinstance(subtree, Terminal):
-        used_fields = [field for field in subtree._fields if getattr(subtree, field, False)]
-        if not isinstance(subtree, AliasNode) and len(used_fields) == 1:
-            result = getattr(subtree, used_fields[0])
+    :param tree: the tree to simplify (mutating!)
+    :param in_list: this is used to prevent unpacking a node in a list as AST visit can't handle nested lists
+    """
+    # TODO: copy (or (de)serialize)? outside this function?
+    if isinstance(tree, BaseNode) and not isinstance(tree, Terminal):
+        used_fields = [field for field in tree._fields if getattr(tree, field, False)]
+        if not isinstance(tree, AliasNode) and len(used_fields) == 1 and not in_list:
+            result = getattr(tree, used_fields[0])
         else:
-            result = subtree  # copy.copy(subtree)
-            for field in subtree._fields:
-                setattr(result, field, simplify(getattr(subtree, field)))
+            result = tree
+            for field in tree._fields:
+                setattr(result, field, simplify(getattr(tree, field)))
             return result
-    elif isinstance(subtree, list) and len(subtree) == 1:
-        result = subtree[0]
+    elif isinstance(tree, list) and len(tree) == 1:
+        result = tree[0]
     else:
-        if isinstance(subtree, list):
-            result = [simplify(el) for el in subtree]
+        if isinstance(tree, list):
+            result = [simplify(el, in_list=True) for el in tree]
         else:
-            result = subtree  # copy.copy(subtree)
+            result = tree
         return result
 
     return simplify(result)
-
-
-# lambda x: tuple(BaseNode.extend_node_list([], x))
-# all_fields = subtree._field_references
-# all_fields.update(subtree._label_references)
-# attr_children = set(map(hash_reference, all_fields.values()))
-# attr_children -= {()}
-# if not isinstance(subtree, AliasNode) and len(attr_children) == 1:
-#     reference = attr_children.pop()
-#     for field, value in all_fields.items():
-#         if reference == hash_reference(value):
-#             result = getattr(subtree, field)
-
-# def hash_reference(ref):
-#     if isinstance(ref, list):
-#         ref = tuple(ref)
-#     return ref
 
 
 class BaseAstVisitor(ParseTreeVisitor):
@@ -610,6 +498,9 @@ class BaseAstVisitor(ParseTreeVisitor):
      - [done] eliminate overhead of alias parsing (store ref to child index, get children on alias access)
      - [necessary?] grammar must use lexer or grammar rules for elements that should be in the tree
        and literals for elements that cannot
+       currently:
+       - Use AliasNode to add labels to _fields, define custom fields and omit fields
+       - Use Transformer to replace a node by a combination of fields
      - [rejected] alternative dynamic class naming:
        - pass parse start to visitor constructor, use as init for self.current_node
        - set self.current_node to field.__name__ before self.visit_field
@@ -624,16 +515,14 @@ class BaseAstVisitor(ParseTreeVisitor):
         - dynamic fields? (~ visit_path)
 
     test code in parse:
-        from antlr_ast.ast import FieldAstVisitor
-        field_tree = FieldAstVisitor().visit(tree)
+        tree = parse_ast(grammar, sql_text, start, **kwargs)
+        field_tree = BaseAstVisitor().visit(tree)
+        alias_tree = AliasVisitor(Transformer()).visit(field_tree)
 
         import ast
         nodes = [el for el in ast.walk(field_tree)]
         import json
         json_str = json.dumps(field_tree, default=lambda o: o.to_json())
-
-        from antlr_ast.ast import AliasVisitor
-        alias_tree = AliasVisitor().visit(field_tree)
     """
 
     def visitChildren(self, node, predicate=None, simplify=False):
