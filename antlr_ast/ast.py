@@ -31,6 +31,13 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     return getattr(parser, start)()
 
 
+def process_tree(antlr_tree, Transformer):
+    field_tree = BaseAstVisitor().visit(antlr_tree)
+    alias_tree = AliasVisitor(Transformer()).visit(field_tree)
+    simple_tree = simplify(alias_tree)
+    return simple_tree
+
+
 # TODO: usage? (ast viewer can use new tree serialization)
 def dump_node(obj):
     if isinstance(obj, BaseNode):
@@ -295,7 +302,7 @@ class Terminal(BaseNode):
     """
 
     _fields = tuple(["value"])
-    DEBUG = True
+    DEBUG = False
     DEBUG_INSTANCES = []
 
     def __new__(cls, *args, **kwargs):
@@ -323,7 +330,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
     # - as a property name to copy from ANTLR nodes
     # - as a property name defined in terms of (nested) ANTLR node properties
     # the field will be set to the first definition that is not undefined
-    _fields_spec = ()
+    _fields_spec = []
 
     # Defines which ANTLR nodes to convert to this node. Elements can be:
     # - a string: uses AstNode._from_fields as visitor
@@ -342,6 +349,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
 
     def __init__(self, node: BaseNode, fields=None):
         # TODO: keep reference to node?
+        # TODO: **fields? (easier notation, but hard to name future arguments
         super().__init__(
             node.children, node._field_references, node._label_references, node._ctx
         )
