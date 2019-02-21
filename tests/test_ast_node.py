@@ -1,13 +1,13 @@
 import pytest
 
-from antlr_ast.ast import AstNode, parse_field_spec
+from antlr_ast.ast import AliasNode, parse_field_spec
 
 
 def test_double_field():
-    class Test(AstNode):
+    class Test(AliasNode):
         _fields_spec = ["x=a", "x=b"]
 
-    assert Test._fields == ["x"]
+    assert Test._fields == ("x",)
 
 
 def test_spec_parse():

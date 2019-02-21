@@ -1,49 +1,39 @@
-from antlr_ast.ast import AstNode, BaseAstVisitor
+from antlr_ast.ast import AliasNode, parse as parse_ast, process_tree
 
-from tests.ExprVisitor import ExprVisitor
+from . import grammar
 
 
-class SubExpr(AstNode):
+class SubExpr(AliasNode):
     _fields_spec = ["expression=expr"]
 
 
-class BinaryExpr(AstNode):
+class BinaryExpr(AliasNode):
     _fields_spec = ["left", "right", "op"]
 
 
-class NotExpr(AstNode):
+class NotExpr(AliasNode):
     _fields_spec = ["op=NOT", "expr"]
 
 
-class AstVisitor(BaseAstVisitor, ExprVisitor):
-    def visitBinaryExpr(self, ctx):
-        return BinaryExpr._from_fields(self, ctx)
+class Transformer:
+    def visit_BinaryExpr(self, node):
+        return BinaryExpr.from_spec(node)
 
-    def visitSubExpr(self, ctx):
-        return SubExpr._from_fields(self, ctx)
+    def visit_SubExpr(self, node):
+        return SubExpr.from_spec(node)
 
-    def visitNotExpr(self, ctx):
-        return NotExpr._from_fields(self, ctx)
+    def visit_NotExpr(self, node):
+        return NotExpr.from_spec(node)
 
-    def visitTerminal(self, ctx):
-        return ctx.getText()
+    def visit_Terminal(self, node):
+        return node.get_text()
 
 
-def parse(text, start="expr", strict=False):
-    from antlr4.InputStream import InputStream
-    from antlr4 import FileStream, CommonTokenStream
+def parse(text, start="expr", **kwargs):
+    antlr_tree = parse_ast(grammar, text, start, upper=False, **kwargs)
+    simple_tree = process_tree(antlr_tree, Transformer)
 
-    from tests.ExprLexer import ExprLexer
-    from tests.ExprParser import ExprParser
-
-    input_stream = InputStream(text)
-
-    lexer = ExprLexer(input_stream)
-    token_stream = CommonTokenStream(lexer)
-    parser = ExprParser(token_stream)
-    ast = AstVisitor()
-
-    return ast.visit(getattr(parser, start)())
+    return simple_tree
 
 
 def test_binary():
@@ -67,18 +57,17 @@ def test_subexpr():
 
 
 def test_fields():
-    assert NotExpr._fields == ["op", "expr"]
+    assert NotExpr._fields == ("op", "expr")
     not_expr = parse("not 2")
-    assert not_expr._fields == ["op", "expr"]
+    assert not_expr._fields == ("op", "expr")
 
-    assert SubExpr._fields == ["expression"]
+    assert SubExpr._fields == ("expression",)
     sub_expr = parse("(1 + 1)")
-    assert sub_expr._fields == ["expression"]
+    assert sub_expr._fields == ("expression",)
 
 
 # Speaker ---------------------------------------------------------------------
 
-import pytest
 from antlr_ast.ast import Speaker
 
 
@@ -108,4 +97,3 @@ def test_speaker_node_cfg():
     assert speaker.describe(node, str_tmp, "left") == str_tmp.format(
         field_name="left part", node_name="binary expression"
     )
-
