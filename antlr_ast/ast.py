@@ -38,7 +38,7 @@ def process_tree(antlr_tree, Transformer=None, simplify=True):
     if Transformer is not None:
         tree = AliasVisitor(Transformer()).visit(tree)
     if simplify:
-        tree = simplify_tree(tree)
+        tree = simplify_tree(tree, unpack_lists=False)
     return tree
 
 
