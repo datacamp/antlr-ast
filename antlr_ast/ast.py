@@ -9,6 +9,8 @@ from typing import List
 from ast import AST, NodeTransformer
 from antlr4.Token import CommonToken
 from antlr4 import CommonTokenStream, ParseTreeVisitor
+from antlr4.tree.Tree import ParseTree
+
 from antlr_ast.inputstream import CaseTransformInputStream
 
 
@@ -23,7 +25,7 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     if strict:
         error_listener = StrictErrorListener()
 
-    if error_listener is not None:
+    if error_listener is not None and error_listener is not True:
         parser.removeErrorListeners()
         if error_listener:
             parser.addErrorListener(error_listener)
@@ -31,32 +33,36 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     return getattr(parser, start)()
 
 
-def process_tree(antlr_tree, Transformer):
-    field_tree = BaseAstVisitor().visit(antlr_tree)
-    alias_tree = AliasVisitor(Transformer()).visit(field_tree)
-    simple_tree = simplify(alias_tree)
-    return simple_tree
+def process_tree(antlr_tree, Transformer=None, simplify=True):
+    tree = BaseAstVisitor().visit(antlr_tree)
+    if Transformer is not None:
+        tree = AliasVisitor(Transformer()).visit(tree)
+    if simplify:
+        tree = simplify_tree(tree)
+    return tree
 
 
-# TODO: usage? (ast viewer can use new tree serialization)
-def dump_node(obj):
-    if isinstance(obj, BaseNode):
+# TODO
+#  duplicated in ast-viewer (also for Python)
+#  structure vs to_json()?
+def dump_node(node, node_class=AST):
+    if isinstance(node, node_class):
         fields = OrderedDict()
-        for name in obj._fields:
-            attr = getattr(obj, name, None)
+        for name in node._fields:
+            attr = getattr(node, name, None)
             if attr is None:
                 continue
-            elif isinstance(attr, BaseNode):
+            elif isinstance(attr, node_class):
                 fields[name] = dump_node(attr)
             elif isinstance(attr, list):
                 fields[name] = [dump_node(x) for x in attr]
             else:
                 fields[name] = attr
-        return {"type": obj.__class__.__name__, "data": fields}
-    elif isinstance(obj, list):
-        return [dump_node(x) for x in obj]
+        return {"type": node.__class__.__name__, "data": fields}
+    elif isinstance(node, list):
+        return [dump_node(x) for x in node]
     else:
-        return obj
+        return node
 
 
 FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
@@ -206,7 +212,10 @@ class BaseNode(AST):
     _strict = False
 
     @classmethod
-    def create(cls, ctx, children):
+    def create(cls, ctx, children=None):
+        if children is None:
+            children = ctx.children
+
         field_names = get_field_names(ctx)
         children_by_field = get_field_references(ctx, field_names)
 
@@ -259,11 +268,21 @@ class BaseNode(AST):
             new = [new]
         return acc + new
 
+    def isinstance(self, class_name):
+        return type(self).__name__ == class_name
+
     def get_text(self, full_text=None):
-        if full_text is None:
-            text = self._ctx.getText()
+        # TODO implement as __str__?
+        #  + easy to combine with str/Terminal
+        #  + use Python instead of custom interface
+        # (-) very different from repr / json
+        if isinstance(self._ctx, ParseTree):
+            if full_text is None:
+                text = self._ctx.getText()
+            else:
+                text = full_text[self._ctx.start.start : self._ctx.stop.stop + 1]
         else:
-            text = full_text[self._ctx.start.start : self._ctx.stop.stop + 1]
+            text = None
 
         return text
 
@@ -312,6 +331,9 @@ class Terminal(BaseNode):
             return instance
         else:
             return args[0][0]
+
+    def __eq__(self, other):
+        return self.value == other
 
     def __str__(self):
         # currently just used for better formatting in debugger
@@ -428,7 +450,7 @@ class AliasVisitor(NodeTransformer):
 
         def visitor(node):
             alias = transformer(node)
-            if isinstance(alias, AliasNode):
+            if isinstance(alias, AliasNode) or alias == node:
                 self.generic_visit(alias)
             else:
                 # visit BaseNode (e.g. result of Transformer method)
@@ -453,32 +475,36 @@ class AliasVisitor(NodeTransformer):
         return terminal
 
 
-def simplify(tree, in_list=False):
+def simplify_tree(tree, unpack_lists=True, in_list=False):
     """Recursively unpack single-item lists and objects where fields and labels only reference a single child
 
     :param tree: the tree to simplify (mutating!)
+    :param unpack_lists: whether single-item lists should be replaced by that item
     :param in_list: this is used to prevent unpacking a node in a list as AST visit can't handle nested lists
     """
     # TODO: copy (or (de)serialize)? outside this function?
     if isinstance(tree, BaseNode) and not isinstance(tree, Terminal):
         used_fields = [field for field in tree._fields if getattr(tree, field, False)]
-        if not isinstance(tree, AliasNode) and len(used_fields) == 1 and not in_list:
+        if len(used_fields) == 1:
             result = getattr(tree, used_fields[0])
         else:
+            result = None
+        if len(used_fields) != 1 or isinstance(tree, AliasNode) or (in_list and isinstance(result, list)):
             result = tree
             for field in tree._fields:
-                setattr(result, field, simplify(getattr(tree, field)))
+                setattr(result, field, simplify_tree(getattr(tree, field), unpack_lists=unpack_lists))
             return result
-    elif isinstance(tree, list) and len(tree) == 1:
+        assert result is not None
+    elif isinstance(tree, list) and len(tree) == 1 and unpack_lists:
         result = tree[0]
     else:
         if isinstance(tree, list):
-            result = [simplify(el, in_list=True) for el in tree]
+            result = [simplify_tree(el, unpack_lists=unpack_lists, in_list=True) for el in tree]
         else:
             result = tree
         return result
 
-    return simplify(result)
+    return simplify_tree(result, unpack_lists=unpack_lists)
 
 
 class BaseAstVisitor(ParseTreeVisitor):
