@@ -363,6 +363,9 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
 
     _priority = 1
 
+    # TODO: test clear failure in SCTs
+    _strict = True
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls, *args, **kwargs)
         # necessary because AST implements this field
@@ -404,13 +407,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         # TODO: can be defined on FieldNode too
         result = node
         for i in range(len(path)):
-            if i == len(path) - 1:
-                result = getattr(result, path[i], None)
-            else:
-                # avoid (unpredictable) simplification in path (before the end)
-                result = result.children_by_label.get(
-                    path[i], result.children_by_field.get(path[i], None)
-                )
+            result = getattr(result, path[i], None)
             if result is None:
                 break
 
@@ -451,6 +448,8 @@ class AliasVisitor(NodeTransformer):
         def visitor(node):
             alias = transformer(node)
             if isinstance(alias, AliasNode) or alias == node:
+                # this prevents infinite recursion and visiting
+                # AliasNodes with a name that is also the name of a BaseNode
                 self.generic_visit(alias)
             else:
                 # visit BaseNode (e.g. result of Transformer method)
