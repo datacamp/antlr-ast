@@ -243,7 +243,7 @@ class BaseNode(AST):
             name, self.children_by_field.get(name, fallback)
         )
         if isinstance(result, AttributeError):
-            raise result
+            raise AttributeError('{}.{} is invalid.'.format(self.__class__.__name__, name))
 
         return result
 
