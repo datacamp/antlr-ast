@@ -1,4 +1,5 @@
 import warnings
+import inspect
 
 from functools import reduce
 from collections import OrderedDict, namedtuple
@@ -373,7 +374,6 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
 
     _priority = 1
 
-    # TODO: test clear failure in SCTs
     _strict = True
 
     def __new__(cls, *args, **kwargs):
@@ -440,7 +440,10 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         assert callable(visit_node)
 
         def method(self, node):
-            return visit_node(node)
+            kwargs = {}
+            if inspect.signature(visit_node).parameters.get("helper"):
+                kwargs["helper"] = self
+            return visit_node(node, **kwargs)
 
         return method
 
