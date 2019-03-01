@@ -1,10 +1,7 @@
-import copy
-import json
 import warnings
 
 from functools import reduce
 from collections import OrderedDict, namedtuple
-from typing import List
 
 from ast import AST, NodeTransformer
 from antlr4.Token import CommonToken
@@ -33,10 +30,11 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     return getattr(parser, start)()
 
 
-def process_tree(antlr_tree, Transformer=None, simplify=True):
-    tree = BaseAstVisitor().visit(antlr_tree)
-    if Transformer is not None:
-        tree = AliasVisitor(Transformer()).visit(tree)
+def process_tree(antlr_tree, transformer=None, simplify=True):
+    cls_registry = BaseNodeRegistry()
+    tree = BaseAstVisitor(cls_registry).visit(antlr_tree)
+    if transformer is not None:
+        tree = AliasVisitor(transformer(cls_registry)).visit(tree)
     if simplify:
         tree = simplify_tree(tree, unpack_lists=False)
     return tree
@@ -53,14 +51,14 @@ def dump_node(node, node_class=AST):
             if attr is None:
                 continue
             elif isinstance(attr, node_class):
-                fields[name] = dump_node(attr)
+                fields[name] = dump_node(attr, node_class=node_class)
             elif isinstance(attr, list):
-                fields[name] = [dump_node(x) for x in attr]
+                fields[name] = [dump_node(x, node_class=node_class) for x in attr]
             else:
                 fields[name] = attr
         return {"type": node.__class__.__name__, "data": fields}
     elif isinstance(node, list):
-        return [dump_node(x) for x in node]
+        return [dump_node(x, node_class=node_class) for x in node]
     else:
         return node
 
@@ -86,12 +84,12 @@ class AstNodeMeta(type):
 # Helper functions -------
 
 
-def bind_to_visitor(visitor_cls, rule_name, visitor):
+def bind_to_transformer(transformer_cls, rule_name, transformer_method):
     """Assign AST node class constructors to parse tree visitors."""
-    setattr(visitor_cls, rule_to_visitor_name(rule_name), visitor)
+    setattr(transformer_cls, get_transformer_method_name(rule_name), transformer_method)
 
 
-def rule_to_visitor_name(rule_name):
+def get_transformer_method_name(rule_name):
     return "visit_{}".format(rule_name[0].upper() + rule_name[1:])
 
 
@@ -183,6 +181,30 @@ class StrictErrorListener(ErrorListener):
 # TODO: make general node (Terminal) accessible in class property (.subclasses)?
 
 
+class BaseNodeRegistry:
+    def __init__(self):
+        self.dynamic_node_classes = {}
+
+    def get_cls(self, cls_name, field_names):
+        """"""
+        if cls_name not in self.dynamic_node_classes:
+            self.dynamic_node_classes[cls_name] = type(
+                cls_name, (BaseNode,), {"_fields": field_names}
+            )
+        return self.dynamic_node_classes[cls_name]
+
+    def isinstance(self, instance, class_name):
+        """Check if a BaseNode is an instance of a registered dynamic class"""
+        if isinstance(instance, BaseNode):
+            klass = self.dynamic_node_classes.get(class_name, None)
+            if klass:
+                return isinstance(instance, klass)
+            # Not an instance of a class in the registry
+            return False
+        else:
+            raise TypeError("This function can only be used for BaseNode objects")
+
+
 class BaseNode(AST):
     """AST is subclassed so we can use Python ast module  visiting and walking on the custom AST"""
 
@@ -197,8 +219,6 @@ class BaseNode(AST):
 
         self._ctx = ctx
 
-    subclasses = {}
-
     _fields = ()
 
     # whether to descend for selection (greater descends into lower)
@@ -212,7 +232,7 @@ class BaseNode(AST):
     _strict = False
 
     @classmethod
-    def create(cls, ctx, children=None):
+    def create(cls, registry, ctx, children=None):
         if children is None:
             children = ctx.children
 
@@ -223,16 +243,9 @@ class BaseNode(AST):
         children_by_label = get_field_references(ctx, label_names)
 
         cls_name = type(ctx).__name__.split("Context")[0]
-        subclass = cls.get_node_cls(cls_name, tuple(field_names))
-        return subclass(children, children_by_field, children_by_label, ctx)
+        subclass = registry.get_cls(cls_name, tuple(field_names))
 
-    @classmethod
-    def get_node_cls(cls, cls_name, field_names=tuple()):
-        if cls_name not in cls.subclasses:
-            cls.subclasses[cls_name] = type(
-                cls_name, (BaseNode,), {"_fields": field_names}
-            )
-        return cls.subclasses[cls_name]
+        return subclass(children, children_by_field, children_by_label, ctx)
 
     def __getattr__(self, name):
         fallback = None
@@ -267,9 +280,6 @@ class BaseNode(AST):
         elif not isinstance(new, list):
             new = [new]
         return acc + new
-
-    def isinstance(self, class_name):
-        return type(self).__name__ == class_name
 
     def get_text(self, full_text=None):
         # TODO implement as __str__?
@@ -414,14 +424,14 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         return result
 
     @classmethod
-    def bind_to_transformer(cls, transformer_cls, default_visit_method="from_spec"):
+    def bind_to_transformer(cls, transformer_cls, default_transform_method="from_spec"):
         for rule in cls._rules:
             if isinstance(rule, str):
-                visit_method = default_visit_method
+                cls_method = default_transform_method
             else:
-                rule, visit_method = rule[:2]
-            visitor = cls.get_transformer(visit_method)
-            bind_to_visitor(transformer_cls, rule, visitor)
+                rule, cls_method = rule[:2]
+            transformer_method = cls.get_transformer(cls_method)
+            bind_to_transformer(transformer_cls, rule, transformer_method)
 
     @classmethod
     def get_transformer(cls, method_name):
@@ -474,6 +484,14 @@ class AliasVisitor(NodeTransformer):
         return terminal
 
 
+class BaseTransformer:
+    def __init__(self, registry: BaseNodeRegistry):
+        self.registry = registry
+
+    def isinstance(self, *args):
+        return self.registry.isinstance(*args)
+
+
 def simplify_tree(tree, unpack_lists=True, in_list=False):
     """Recursively unpack single-item lists and objects where fields and labels only reference a single child
 
@@ -524,7 +542,7 @@ class BaseAstVisitor(ParseTreeVisitor):
      - [done] flatten nested list (see select with dynamic clause ordering)
      - combine terminals / error nodes
      - serialize highlight info
-     - make compatible with AstNode & AstModule in protowhat (+ shellwhat usage: bashlex + osh parser)
+     - [done] make compatible with AstNode & AstModule in protowhat (+ shellwhat usage: bashlex + osh parser)
          - combining fields & labels dicts needed?
      - use exact ANTLR names in _rules (capitalize name without changing other casing)
      - add labels to _fields if not overlapping with fields from rules
@@ -557,12 +575,14 @@ class BaseAstVisitor(ParseTreeVisitor):
         import json
         json_str = json.dumps(field_tree, default=lambda o: o.to_json())
     """
+    def __init__(self, registry: BaseNodeRegistry):
+        self.registry = registry
 
     def visitChildren(self, node, predicate=None, simplify=False):
         # children is None if all parts of a grammar rule are optional and absent
         children = [self.visit(child) for child in node.children or []]
 
-        instance = BaseNode.create(node, children)
+        instance = BaseNode.create(self.registry, node, children)
 
         return instance
 
