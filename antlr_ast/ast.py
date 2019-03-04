@@ -69,7 +69,7 @@ FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
 
 def parse_field_spec(spec):
     # parse mapping for = and .  # old: and indices [] -----
-    name, *origin = spec.split("=")
+    name, *origin = [part.strip() for part in spec.split("=")]
     origin = name if not origin else origin[0]
     origin = origin.split(".")
     return FieldSpec(name, origin)
@@ -249,15 +249,15 @@ class BaseNode(AST):
         return subclass(children, children_by_field, children_by_label, ctx)
 
     def __getattr__(self, name):
-        fallback = None
-        if self._strict:
-            fallback = AttributeError
-
-        result = self.children_by_label.get(
-            name, self.children_by_field.get(name, fallback)
-        )
-        if isinstance(result, AttributeError):
-            raise AttributeError('{}.{} is invalid.'.format(self.__class__.__name__, name))
+        try:
+            result = self.children_by_label.get(name) or self.children_by_field[name]
+        except KeyError:
+            if self._strict:
+                raise AttributeError(
+                    "{}.{} is invalid.".format(self.__class__.__name__, name)
+                )
+            else:
+                result = None
 
         return result
 
@@ -432,16 +432,16 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
     @classmethod
     def get_transformer(cls, method_name):
         """Get method to bind to visitor"""
-        visit_node = getattr(cls, method_name)
-        assert callable(visit_node)
+        transform_function = getattr(cls, method_name)
+        assert callable(transform_function)
 
-        def method(self, node):
+        def transformer_method(self, node):
             kwargs = {}
-            if inspect.signature(visit_node).parameters.get("helper"):
+            if inspect.signature(transform_function).parameters.get("helper"):
                 kwargs["helper"] = self
-            return visit_node(node, **kwargs)
+            return transform_function(node, **kwargs)
 
-        return method
+        return transformer_method
 
 
 # TODO: test: if 'visit' in method, it has to be as 'visit_'
@@ -490,6 +490,20 @@ class BaseTransformer:
     def isinstance(self, *args):
         return self.registry.isinstance(*args)
 
+    @classmethod
+    def bind_alias_nodes(cls, alias_classes):
+        for item in alias_classes:
+            if getattr(item, "_rules", None) is not None:
+                item.bind_to_transformer(cls)
+
+
+def get_alias_nodes(items):
+    return list(
+        filter(
+            lambda item: inspect.isclass(item) and issubclass(item, AliasNode), items
+        )
+    )
+
 
 def simplify_tree(tree, unpack_lists=True, in_list=False):
     """Recursively unpack single-item lists and objects where fields and labels only reference a single child
@@ -505,17 +519,30 @@ def simplify_tree(tree, unpack_lists=True, in_list=False):
             result = getattr(tree, used_fields[0])
         else:
             result = None
-        if len(used_fields) != 1 or isinstance(tree, AliasNode) or (in_list and isinstance(result, list)):
+        if (
+            len(used_fields) != 1
+            or isinstance(tree, AliasNode)
+            or (in_list and isinstance(result, list))
+        ):
             result = tree
             for field in tree._fields:
-                setattr(result, field, simplify_tree(getattr(tree, field), unpack_lists=unpack_lists))
+                old_value = getattr(tree, field, None)
+                if old_value:
+                    setattr(
+                        result,
+                        field,
+                        simplify_tree(old_value, unpack_lists=unpack_lists),
+                    )
             return result
         assert result is not None
     elif isinstance(tree, list) and len(tree) == 1 and unpack_lists:
         result = tree[0]
     else:
         if isinstance(tree, list):
-            result = [simplify_tree(el, unpack_lists=unpack_lists, in_list=True) for el in tree]
+            result = [
+                simplify_tree(el, unpack_lists=unpack_lists, in_list=True)
+                for el in tree
+            ]
         else:
             result = tree
         return result
@@ -574,6 +601,7 @@ class BaseAstVisitor(ParseTreeVisitor):
         import json
         json_str = json.dumps(field_tree, default=lambda o: o.to_json())
     """
+
     def __init__(self, registry: BaseNodeRegistry):
         self.registry = registry
 
