@@ -365,6 +365,8 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
     # the field will be set to the first definition that is not undefined
     _fields_spec = []
 
+    _fields = AstNodeMeta._fields
+
     # Defines which ANTLR nodes to convert to this node. Elements can be:
     # - a string: uses AstNode._from_fields as visitor
     # - a tuple ('node_name', 'ast_node_class_method_name'): uses ast_node_class_method_name as visitor
@@ -375,12 +377,6 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
     _priority = 1
 
     _strict = True
-
-    def __new__(cls, *args, **kwargs):
-        instance = super().__new__(cls, *args, **kwargs)
-        # necessary because AST implements this field
-        instance._fields = cls._fields
-        return instance
 
     def __init__(self, node: BaseNode, fields=None):
         # TODO: keep reference to node?
