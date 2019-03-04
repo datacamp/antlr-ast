@@ -35,7 +35,7 @@ def process_tree(antlr_tree, transformer=None, simplify=True):
     cls_registry = BaseNodeRegistry()
     tree = BaseAstVisitor(cls_registry).visit(antlr_tree)
     if transformer is not None:
-        tree = AliasVisitor(transformer(cls_registry)).visit(tree)
+        tree = transformer(cls_registry).visit(tree)
     if simplify:
         tree = simplify_tree(tree, unpack_lists=False)
     return tree
@@ -189,8 +189,8 @@ class BaseNodeRegistry:
     def get_cls(self, cls_name, field_names):
         """"""
         if cls_name not in self.dynamic_node_classes:
-            self.dynamic_node_classes[cls_name] = type(
-                cls_name, (BaseNode,), {"_fields": field_names}
+            self.dynamic_node_classes[cls_name] = BaseNode.create_cls(
+                cls_name, field_names
             )
         return self.dynamic_node_classes[cls_name]
 
@@ -233,7 +233,9 @@ class BaseNode(AST):
     _strict = False
 
     @classmethod
-    def create(cls, registry, ctx, children=None):
+    def create(cls, ctx, children=None, registry=None):
+        if registry is None:
+            registry = BaseNodeRegistry()
         if children is None:
             children = ctx.children
 
@@ -247,6 +249,10 @@ class BaseNode(AST):
         subclass = registry.get_cls(cls_name, tuple(field_names))
 
         return subclass(children, children_by_field, children_by_label, ctx)
+
+    @classmethod
+    def create_cls(cls, cls_name, field_names):
+        return type(cls_name, (cls,), {"_fields": field_names})
 
     def __getattr__(self, name):
         try:
@@ -438,23 +444,26 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         def transformer_method(self, node):
             kwargs = {}
             if inspect.signature(transform_function).parameters.get("helper"):
-                kwargs["helper"] = self
+                kwargs["helper"] = self.helper
             return transform_function(node, **kwargs)
 
         return transformer_method
 
 
 # TODO: test: if 'visit' in method, it has to be as 'visit_'
-class AliasVisitor(NodeTransformer):
-    def __init__(self, transformer_visitor):
-        self.transformer_visitor = transformer_visitor
+class BaseNodeTransformer(NodeTransformer):
+    def __init__(self, registry: BaseNodeRegistry):
+        self.helper = TransformerHelper(registry)
 
-    def __getattr__(self, item):
-        transformer = getattr(self.transformer_visitor, item)
+    def visit(self, node):
+        # TODO: I think transform_  + node.__class__.__name__ would be better/clearer then
+        #  as the node methods don't need to do any visiting (which is completely done by visit and generic_visit)
+        method = "visit_" + node.__class__.__name__
+        transformer = getattr(self, method, None)
+
         if transformer is None:
-            raise AttributeError
-
-        def visitor(node):
+            return self.generic_visit(node)
+        else:
             alias = transformer(node)
             if isinstance(alias, AliasNode) or alias == node:
                 # this prevents infinite recursion and visiting
@@ -470,8 +479,6 @@ class AliasVisitor(NodeTransformer):
 
             return alias
 
-        return visitor
-
     def visit_Terminal(self, terminal):
         return self.terminal_visitor(terminal)
 
@@ -482,19 +489,19 @@ class AliasVisitor(NodeTransformer):
         """Helper to transparently handle Terminal"""
         return terminal
 
-
-class BaseTransformer:
-    def __init__(self, registry: BaseNodeRegistry):
-        self.registry = registry
-
-    def isinstance(self, *args):
-        return self.registry.isinstance(*args)
-
     @classmethod
     def bind_alias_nodes(cls, alias_classes):
         for item in alias_classes:
             if getattr(item, "_rules", None) is not None:
                 item.bind_to_transformer(cls)
+
+
+class TransformerHelper:
+    def __init__(self, registry: BaseNodeRegistry):
+        self.registry = registry
+
+    def isinstance(self, *args):
+        return self.registry.isinstance(*args)
 
 
 def get_alias_nodes(items):
@@ -609,7 +616,7 @@ class BaseAstVisitor(ParseTreeVisitor):
         # children is None if all parts of a grammar rule are optional and absent
         children = [self.visit(child) for child in node.children or []]
 
-        instance = BaseNode.create(self.registry, node, children)
+        instance = BaseNode.create(node, children, self.registry)
 
         return instance
 
