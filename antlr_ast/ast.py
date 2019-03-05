@@ -31,13 +31,23 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     return getattr(parser, start)()
 
 
-def process_tree(antlr_tree, transformer=None, simplify=True):
+def process_tree(antlr_tree, base_visitor_cls=None, transformer_cls=None, simplify=True):
     cls_registry = BaseNodeRegistry()
-    tree = BaseAstVisitor(cls_registry).visit(antlr_tree)
-    if transformer is not None:
-        tree = transformer(cls_registry).visit(tree)
+
+    if not base_visitor_cls:
+        base_visitor_cls = BaseAstVisitor
+    elif not issubclass(base_visitor_cls, BaseAstVisitor):
+        raise ValueError("base_visitor_cls must be a BaseAstVisitor subclass")
+    tree = base_visitor_cls(cls_registry).visit(antlr_tree)
+
+    if transformer_cls is not None:
+        if not issubclass(transformer_cls, BaseNodeTransformer):
+            raise ValueError("transformer_cls must be a BaseNodeTransformer subclass")
+        tree = transformer_cls(cls_registry).visit(tree)
+
     if simplify:
         tree = simplify_tree(tree, unpack_lists=False)
+
     return tree
 
 
@@ -623,9 +633,6 @@ class BaseAstVisitor(ParseTreeVisitor):
     def visitTerminal(self, ctx):
         """Converts case insensitive keywords and identifiers to lowercase"""
         text = ctx.getText()
-        quotes = ["'", '"']
-        if not (text[0] in quotes and text[-1] in quotes):
-            text = text.lower()
         return Terminal([text], {"value": 0}, {}, ctx)
 
     def visitErrorNode(self, node):
