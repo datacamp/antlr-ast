@@ -359,6 +359,10 @@ class Terminal(BaseNode):
         else:
             return args[0][0]
 
+    @classmethod
+    def from_text(cls, text, ctx):
+        return cls([text], {"value": 0}, {}, ctx)
+
     def __eq__(self, other):
         return self.value == other
 
@@ -633,7 +637,7 @@ class BaseAstVisitor(ParseTreeVisitor):
     def visitTerminal(self, ctx):
         """Converts case insensitive keywords and identifiers to lowercase"""
         text = ctx.getText()
-        return Terminal([text], {"value": 0}, {}, ctx)
+        return Terminal.from_text(text, ctx)
 
     def visitErrorNode(self, node):
         return None
