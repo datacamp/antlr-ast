@@ -1,4 +1,4 @@
-from antlr_ast.ast import AliasNode, parse as parse_ast, process_tree
+from antlr_ast.ast import AliasNode, parse as parse_ast, process_tree, BaseNodeTransformer
 
 from . import grammar
 
@@ -15,7 +15,7 @@ class NotExpr(AliasNode):
     _fields_spec = ["op=NOT", "expr"]
 
 
-class Transformer:
+class Transformer(BaseNodeTransformer):
     def visit_BinaryExpr(self, node):
         return BinaryExpr.from_spec(node)
 
@@ -31,7 +31,7 @@ class Transformer:
 
 def parse(text, start="expr", **kwargs):
     antlr_tree = parse_ast(grammar, text, start, upper=False, **kwargs)
-    simple_tree = process_tree(antlr_tree, Transformer)
+    simple_tree = process_tree(antlr_tree, transformer_cls=Transformer)
 
     return simple_tree
 
