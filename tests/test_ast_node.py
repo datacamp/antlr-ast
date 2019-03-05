@@ -10,10 +10,16 @@ def test_double_field():
     assert Test._fields == ("x",)
 
 
-def test_spec_parse():
-    field_spec_str = "x=a.b"
-    field_spec = parse_field_spec(field_spec_str)
+@pytest.mark.parametrize("field_spec_str, field_spec", [
+    ("x", ("x", ["x"])),
+    ("x=a", ("x", ["a"])),
+    ("x=a.b", ("x", ["a", "b"])),
+    ("x = a", ("x", ["a"])),
+    ("x= a ", ("x", ["a"])),
+])
+def test_spec_parse(field_spec_str, field_spec):
+    spec = parse_field_spec(field_spec_str)
 
-    assert field_spec.name == "x"
-    assert field_spec.origin == ["a", "b"]
-    assert field_spec == ("x", ["a", "b"])
+    assert spec.name == field_spec[0]
+    assert spec.origin == field_spec[1]
+    assert spec == field_spec

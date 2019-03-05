@@ -1,6 +1,6 @@
 import pytest
 
-from antlr_ast.ast import rule_to_visitor_name
+from antlr_ast.ast import get_transformer_method_name
 
 
 @pytest.mark.parametrize(
@@ -14,4 +14,4 @@ from antlr_ast.ast import rule_to_visitor_name
     ],
 )
 def test_upper_first(text, result):
-    assert rule_to_visitor_name(text) == result
+    assert get_transformer_method_name(text) == result
