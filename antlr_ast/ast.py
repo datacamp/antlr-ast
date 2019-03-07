@@ -360,7 +360,7 @@ class Terminal(BaseNode):
             return args[0][0]
 
     @classmethod
-    def from_text(cls, text, ctx):
+    def from_text(cls, text, ctx=None):
         return cls([text], {"value": 0}, {}, ctx)
 
     def __eq__(self, other):
