@@ -26,7 +26,7 @@ py.test
 ## Usage
 
 **Note: This tutorial assumes you know how to parse code, and create a python visitor.**
-See the Antlr4 [getting started guide](https://github.com/antlr/antlr4/blob/4.7.1/doc/getting-started.md) if you have never installed Antlr.
+See the Antlr4 [getting started guide](https://github.com/antlr/antlr4/blob/4.7.2/doc/getting-started.md) if you have never installed Antlr.
 The [Antlr Mega Tutorial](https://tomassetti.me/antlr-mega-tutorial/#python-setup) has useful python examples.
 
 Using `antlr-ast` involves three steps:

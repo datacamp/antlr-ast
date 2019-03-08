@@ -18,7 +18,7 @@ with open(VERSION_FILE, encoding="utf-8") as fp:
     VERSION = str(ast.literal_eval(_version_re.search(fp.read()).group(1)))
 with open(REQUIREMENTS_FILE, encoding="utf-8") as fp:
     req_txt = fp.read()
-    _requirements_re_template = r"^({}(?:\s*[<>=]+\s*\S*)?)\s*(?:#.*)?$"
+    _requirements_re_template = r"^({}(?:\s*[~<>=]+\s*\S*)?)\s*(?:#.*)?$"
     REQUIREMENTS = [
         re.search(_requirements_re_template.format(requirement), req_txt, re.M).group(0)
         for requirement in REQUIREMENT_NAMES
