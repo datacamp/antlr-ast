@@ -1,4 +1,10 @@
-from antlr_ast.ast import AliasNode, parse as parse_ast, process_tree, BaseNodeTransformer
+from antlr_ast.ast import (
+    AliasNode,
+    BaseNode as AstNode,  # used in other tests
+    parse as parse_ast,
+    process_tree,
+    BaseNodeTransformer,
+)
 
 from . import grammar
 
