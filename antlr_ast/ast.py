@@ -219,7 +219,7 @@ class BaseNodeRegistry:
 class BaseNode(AST):
     """AST is subclassed so we can use Python ast module  visiting and walking on the custom AST"""
 
-    def __init__(self, children, field_references, label_references, ctx=None):
+    def __init__(self, children, field_references, label_references, ctx=None, position=None):
         self.children = children
 
         self._field_references = field_references
@@ -229,6 +229,7 @@ class BaseNode(AST):
         self.children_by_label = materialize(self._label_references, self.children)
 
         self._ctx = ctx
+        self.position = position
 
     _fields = ()
 
@@ -315,22 +316,16 @@ class BaseNode(AST):
 
     def get_position(self):
         ctx = self._ctx
-        d = {
-            "line_start": ctx.start.line,
-            "column_start": ctx.start.column,
-            "line_end": ctx.stop.line,
-            "column_end": ctx.stop.column + (ctx.stop.stop - ctx.stop.start),
-        }
-        return d
-
-    def to_json(self):
-        return {
-            "@type": self.__class__.__name__,
-            "@fields": self._fields,
-            "field_references": self._field_references,
-            "label_references": self._label_references,
-            "children": self.children,
-        }
+        if ctx is not None:
+            position = {
+                "line_start": ctx.start.line,
+                "column_start": ctx.start.column,
+                "line_end": ctx.stop.line,
+                "column_end": ctx.stop.column + (ctx.stop.stop - ctx.stop.start),
+            }
+        else:
+            position = self.position
+        return position
 
     def __repr__(self):
         return str({**self.children_by_field, **self.children_by_label})
@@ -369,9 +364,6 @@ class Terminal(BaseNode):
     def __str__(self):
         # currently just used for better formatting in debugger
         return self.value
-
-    def to_json(self):
-        return str(self)
 
     def __repr__(self):
         return "'{}'".format(self.value)
