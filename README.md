@@ -24,7 +24,7 @@ py.test
 
 Using `antlr-ast` involves four steps:
 
-1. Using ANTLR to define a grammar and generate the necessary Python files for a grammar
+1. Using ANTLR to define a grammar and to generate the necessary Python files to parse this grammar
 2. Using `parse` to get the ANTLR runtime output based on the generated grammar files
 3. Using `process_tree` on the output of the previous step
     1. A `BaseAstVisitor` (customisable by providing a subclass) transforms the ANTLR output to a serializable tree of `BaseNode`s,
