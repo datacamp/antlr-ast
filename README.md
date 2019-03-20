@@ -29,11 +29,13 @@ Using `antlr-ast` involves four steps:
 3. Using `process_tree` on the output of the previous step
     1. A `BaseAstVisitor` (customisable by providing a subclass) transforms the ANTLR output to a serializable tree of `BaseNode`s,
        dynamically created based on the rules in the ANTLR grammar
-    2. A `BaseNodeTransformer` subclass can be used to transform each node
+    2. A `BaseNodeTransformer` subclass can be used to transform each kind of node
     3. The simplify option can be used to shorten paths in the tree by skipping nodes that only have a single descendant
 4. Using the resulting tree
 
 The next sections go into more detail about these steps.
+
+To visualize the process of creating and transforrming these parse trees, you can use [this ast-viewer](https://github.com/datacamp/ast-viewer).
 
 ### Using ANTLR
 
@@ -42,7 +44,7 @@ See the ANTLR [getting started guide](https://github.com/antlr/antlr4/blob/4.7.2
 The [ANTLR Mega Tutorial](https://tomassetti.me/antlr-mega-tutorial/#python-setup) has useful Python examples.
 
 [This page explains how to write ANTLR parser rules](https://github.com/antlr/antlr4/blob/master/doc/parser-rules.md).  
-The rule definition below is an example with descriptive names for important ANTLT parser grammar elements:
+The rule definition below is an example with descriptive names for important ANTLR parser grammar elements:
 
 ```g4
 rule_name: rule_element? rule_element_label='literal'    #RuleAlternativeLabel
@@ -105,6 +107,9 @@ If rule alternative labels are specified for an ANTLR rule, these are used inste
 
 ### Transforming nodes
 
+Typically, there is no 1-to-1 mapping between ANTLR rules and the concepts of a language: the rule hierarchy is more nested.
+Transformations can be used to make the initial tree of BaseNodes based on ANTLR rules more similar to an AST.
+
 #### Transformer
 
 The `BaseNodeTransformer` will walk over the tree from the root node to the leaf nodes.
@@ -128,8 +133,10 @@ class Transformer(BaseNodeTransformer):
 
 #### Custom nodes
 
+A custom node can represent a part of the parsed language, a type of node present in an AST.
+
 To make it easy to return a custom node, you can define `AliasNode` subclasses.
-Normally, fields of `AliasNode`s are like symlinks to navigate an AST tree.
+Normally, fields of `AliasNode`s are like symlinks to navigate the tree of `BaseNode`s.
 
 Instances of custom nodes are created from a `BaseNode`.
 Fields and labels of the source `BaseNode` are also available on the `AliasNode`.
@@ -168,7 +175,8 @@ class Transformer(BaseNodeTransformer):
 
     # here the BaseNode name is the same as the custom node name
     # but that isn't required
-    def visit_NotExpr(self, node):
+    @staticmethod
+    def visit_NotExpr(node):
         return NotExpr.from_spec(node)
 ```
 
