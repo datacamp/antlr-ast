@@ -51,7 +51,7 @@ def process_tree(antlr_tree, base_visitor_cls=None, transformer_cls=None, simpli
     return tree
 
 
-# TODO
+# TODO use protowhat dump + DumpConfig
 #  duplicated in ast-viewer (also for Python)
 #  structure vs to_json()?
 def dump_node(node, node_class=AST):
@@ -59,14 +59,8 @@ def dump_node(node, node_class=AST):
         fields = OrderedDict()
         for name in node._fields:
             attr = getattr(node, name, None)
-            if attr is None:
-                continue
-            elif isinstance(attr, node_class):
+            if attr is not None:
                 fields[name] = dump_node(attr, node_class=node_class)
-            elif isinstance(attr, list):
-                fields[name] = [dump_node(x, node_class=node_class) for x in attr]
-            else:
-                fields[name] = attr
         return {"type": node.__class__.__name__, "data": fields}
     elif isinstance(node, list):
         return [dump_node(x, node_class=node_class) for x in node]
