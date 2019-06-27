@@ -6,6 +6,7 @@ from antlr_ast.ast import (
     BaseNodeTransformer,
     Terminal,
 )
+from antlr_ast.inputstream import CaseTransformInputStream
 
 from . import grammar
 
@@ -34,7 +35,9 @@ class Transformer(BaseNodeTransformer):
 
 
 def parse(text, start="expr", **kwargs):
-    antlr_tree = parse_ast(grammar, text, start, upper=False, **kwargs)
+    antlr_tree = parse_ast(
+        grammar, text, start, transform=CaseTransformInputStream.LOWER, **kwargs
+    )
     simple_tree = process_tree(antlr_tree, transformer_cls=Transformer)
 
     return simple_tree
