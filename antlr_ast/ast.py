@@ -311,12 +311,21 @@ class BaseNode(AST):
     def get_position(self):
         ctx = self._ctx
         if ctx is not None:
-            position = {
-                "line_start": ctx.start.line,
-                "column_start": ctx.start.column,
-                "line_end": ctx.stop.line,
-                "column_end": ctx.stop.column + (ctx.stop.stop - ctx.stop.start),
-            }
+            if hasattr(ctx, "symbol"):
+                position = {
+                    "line_start": ctx.symbol.line,
+                    "column_start": ctx.symbol.column,
+                    "line_end": ctx.symbol.line,
+                    "column_end": ctx.symbol.column + (ctx.symbol.stop - ctx.symbol.start),
+                }
+            else:
+                position = {
+                    "line_start": ctx.start.line,
+                    "column_start": ctx.start.column,
+                    "line_end": ctx.stop.line,
+                    "column_end": ctx.stop.column + (ctx.stop.stop - ctx.stop.start),
+                }
+
         else:
             position = self.position
         return position
@@ -337,7 +346,7 @@ class Terminal(BaseNode):
     """
 
     _fields = tuple(["value"])
-    DEBUG = False
+    DEBUG = True
     DEBUG_INSTANCES = []
 
     def __new__(cls, *args, **kwargs):
@@ -468,7 +477,8 @@ class BaseNodeTransformer(NodeTransformer):
             if isinstance(alias, AliasNode) or alias == node:
                 # this prevents infinite recursion and visiting
                 # AliasNodes with a name that is also the name of a BaseNode
-                self.generic_visit(alias)
+                if isinstance(alias, BaseNode):
+                    self.generic_visit(alias)
             else:
                 # visit BaseNode (e.g. result of Transformer method)
                 if isinstance(alias, list):
