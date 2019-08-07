@@ -4,6 +4,7 @@ from antlr_ast.ast import (
     parse as parse_ast,
     process_tree,
     BaseNodeTransformer,
+    Terminal,
 )
 
 from . import grammar
@@ -31,9 +32,6 @@ class Transformer(BaseNodeTransformer):
     def visit_NotExpr(self, node):
         return NotExpr.from_spec(node)
 
-    def visit_Terminal(self, node):
-        return node.get_text()
-
 
 def parse(text, start="expr", **kwargs):
     antlr_tree = parse_ast(grammar, text, start, upper=False, **kwargs)
@@ -60,6 +58,7 @@ def test_subexpr():
     node = parse("(1 + 1)")
     assert isinstance(node, SubExpr)
     assert isinstance(node.expression, BinaryExpr)
+    assert isinstance(node.expression.left, Terminal)
 
 
 def test_fields():
@@ -103,3 +102,48 @@ def test_speaker_node_cfg():
     assert speaker.describe(node, str_tmp, "left") == str_tmp.format(
         field_name="left part", node_name="binary expression"
     )
+
+
+# BaseNode.get_position -------------------------------------------------------
+
+
+def test_get_position():
+    # Given
+    code = "1 + (2 + 2)"
+    correct_position = {
+        "line_start": 1,
+        "column_start": 4,
+        "line_end": 1,
+        "column_end": 10,
+    }
+
+    # When
+    result = parse(code)
+    positions = result.right.get_position()
+
+    # Then
+    assert positions["line_start"] == correct_position["line_start"]
+    assert positions["line_end"] == correct_position["line_end"]
+    assert positions["column_start"] == correct_position["column_start"]
+    assert positions["column_end"] == correct_position["column_end"]
+
+
+def test_terminal_get_position():
+    # Given
+    code = "(2 + 2) + 1"
+    correct_position = {
+        "line_start": 1,
+        "column_start": 10,
+        "line_end": 1,
+        "column_end": 10,
+    }
+
+    # When
+    result = parse(code)
+    positions = result.right.get_position()
+
+    # Then
+    assert positions["line_start"] == correct_position["line_start"]
+    assert positions["line_end"] == correct_position["line_end"]
+    assert positions["column_start"] == correct_position["column_start"]
+    assert positions["column_end"] == correct_position["column_end"]
