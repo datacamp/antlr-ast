@@ -119,13 +119,12 @@ def test_get_position():
 
     # When
     result = parse(code)
-    positions = result.right.get_position()
+    position = result.right.get_position()
 
     # Then
-    assert positions["line_start"] == correct_position["line_start"]
-    assert positions["line_end"] == correct_position["line_end"]
-    assert positions["column_start"] == correct_position["column_start"]
-    assert positions["column_end"] == correct_position["column_end"]
+    assert len(position) == len(correct_position)
+    for item in correct_position.items():
+        assert item in position.items()
 
 
 def test_terminal_get_position():
@@ -140,10 +139,20 @@ def test_terminal_get_position():
 
     # When
     result = parse(code)
-    positions = result.right.get_position()
+    position = result.right.get_position()
 
     # Then
-    assert positions["line_start"] == correct_position["line_start"]
-    assert positions["line_end"] == correct_position["line_end"]
-    assert positions["column_start"] == correct_position["column_start"]
-    assert positions["column_end"] == correct_position["column_end"]
+    assert len(position) == len(correct_position)
+    for item in correct_position.items():
+        assert item in position.items()
+
+
+def test_no_position():
+    # Given
+    code = "!"
+
+    # When
+    result = parse(code)
+    position = result.get_position()
+
+    assert position is None

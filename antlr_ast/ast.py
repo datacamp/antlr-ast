@@ -5,6 +5,8 @@ from functools import reduce
 from collections import OrderedDict, namedtuple
 
 from ast import AST, NodeTransformer
+from typing import Dict, Optional
+
 from antlr4.Token import CommonToken
 from antlr4 import CommonTokenStream, ParseTreeVisitor
 from antlr4.tree.Tree import ParseTree
@@ -293,32 +295,33 @@ class BaseNode(AST):
             new = [new]
         return acc + new
 
-    def get_text(self, full_text=None):
+    def get_text(self, full_text=None) -> Optional[str]:
         # TODO implement as __str__?
         #  + easy to combine with str/Terminal
         #  + use Python instead of custom interface
         # (-) very different from repr / json
+        text = None
         if isinstance(self._ctx, ParseTree):
             if full_text is None:
                 text = self._ctx.getText()
-            else:
+            elif getattr(self._ctx, "start", None) and getattr(self._ctx, "stop", None):
                 text = full_text[self._ctx.start.start : self._ctx.stop.stop + 1]
-        else:
-            text = None
 
         return text
 
-    def get_position(self):
+    def get_position(self) -> Optional[Dict[str, int]]:
+        position = None
         ctx = self._ctx
         if ctx is not None:
-            if hasattr(ctx, "symbol"):
+            if getattr(ctx, "symbol", None):
                 position = {
                     "line_start": ctx.symbol.line,
                     "column_start": ctx.symbol.column,
                     "line_end": ctx.symbol.line,
-                    "column_end": ctx.symbol.column + (ctx.symbol.stop - ctx.symbol.start),
+                    "column_end": ctx.symbol.column
+                    + (ctx.symbol.stop - ctx.symbol.start),
                 }
-            else:
+            elif getattr(ctx, "start", None) and getattr(ctx, "stop", None):
                 position = {
                     "line_start": ctx.start.line,
                     "column_start": ctx.start.column,
@@ -326,9 +329,7 @@ class BaseNode(AST):
                     "column_end": ctx.stop.column + (ctx.stop.stop - ctx.stop.start),
                 }
 
-        else:
-            position = self.position
-        return position
+        return position or self.position
 
     def __repr__(self):
         return str({**self.children_by_field, **self.children_by_label})
