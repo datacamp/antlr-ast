@@ -1,18 +1,29 @@
 import warnings
 import inspect
 
+from typing import Dict, Optional, List, Union, Type, Any, Callable
+
 from functools import reduce
 from collections import OrderedDict, namedtuple
 
 from ast import AST, NodeTransformer
+
 from antlr4.Token import CommonToken
-from antlr4 import CommonTokenStream, ParseTreeVisitor
-from antlr4.tree.Tree import ParseTree
+from antlr4 import CommonTokenStream, ParseTreeVisitor, ParserRuleContext, RuleContext
+from antlr4.tree.Tree import ErrorNode, TerminalNodeImpl, ParseTree
 
 from antlr_ast.inputstream import CaseTransformInputStream
+from antlr4.error.ErrorListener import ErrorListener
 
 
-def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
+def parse(
+    grammar,
+    text: str,
+    start: str,
+    strict=False,
+    upper=True,
+    error_listener: ErrorListener = None,
+) -> ParseTree:
     input_stream = CaseTransformInputStream(text, upper=upper)
 
     lexer = grammar.Lexer(input_stream)
@@ -31,7 +42,12 @@ def parse(grammar, text, start, strict=False, upper=True, error_listener=None):
     return getattr(parser, start)()
 
 
-def process_tree(antlr_tree, base_visitor_cls=None, transformer_cls=None, simplify=True):
+def process_tree(
+    antlr_tree: ParseTree,
+    base_visitor_cls: Type["BaseAstVisitor"] = None,
+    transformer_cls: Type["BaseNodeTransformer"] = None,
+    simplify=True,
+) -> "BaseNode":
     cls_registry = BaseNodeRegistry()
 
     if not base_visitor_cls:
@@ -71,7 +87,7 @@ def dump_node(node, node_class=AST):
 FieldSpec = namedtuple("FieldSpec", ["name", "origin"])
 
 
-def parse_field_spec(spec):
+def parse_field_spec(spec: str) -> FieldSpec:
     # parse mapping for = and .  # old: and indices [] -----
     name, *origin = [part.strip() for part in spec.split("=")]
     origin = name if not origin else origin[0]
@@ -84,18 +100,6 @@ class AstNodeMeta(type):
     def _fields(cls):
         od = OrderedDict([(parse_field_spec(el).name, None) for el in cls._fields_spec])
         return tuple(od)
-
-
-# Helper functions -------
-
-
-def bind_to_transformer(transformer_cls, rule_name, transformer_method):
-    """Assign AST node class constructors to parse tree visitors."""
-    setattr(transformer_cls, get_transformer_method_name(rule_name), transformer_method)
-
-
-def get_transformer_method_name(rule_name):
-    return "visit_{}".format(rule_name[0].upper() + rule_name[1:])
 
 
 # Speaker class ---------------------------------------------------------------
@@ -144,8 +148,6 @@ class Speaker:
 
 # Error Listener ------------------------------------------------------------------
 
-from antlr4.error.ErrorListener import ErrorListener
-
 # from antlr4.error.Errors import RecognitionException
 
 
@@ -185,35 +187,20 @@ class StrictErrorListener(ErrorListener):
 # TODO: visitor inheritance not really needed, but indicates compatibility
 # TODO: make general node (Terminal) accessible in class property (.subclasses)?
 
-
-class BaseNodeRegistry:
-    def __init__(self):
-        self.dynamic_node_classes = {}
-
-    def get_cls(self, cls_name, field_names):
-        """"""
-        if cls_name not in self.dynamic_node_classes:
-            self.dynamic_node_classes[cls_name] = BaseNode.create_cls(
-                cls_name, field_names
-            )
-        return self.dynamic_node_classes[cls_name]
-
-    def isinstance(self, instance, class_name):
-        """Check if a BaseNode is an instance of a registered dynamic class"""
-        if isinstance(instance, BaseNode):
-            klass = self.dynamic_node_classes.get(class_name, None)
-            if klass:
-                return isinstance(instance, klass)
-            # Not an instance of a class in the registry
-            return False
-        else:
-            raise TypeError("This function can only be used for BaseNode objects")
+IndexReferences = Dict[str, Union[int, List[int]]]
 
 
 class BaseNode(AST):
     """AST is subclassed so we can use Python ast module  visiting and walking on the custom AST"""
 
-    def __init__(self, children, field_references, label_references, ctx=None, position=None):
+    def __init__(
+        self,
+        children: list,
+        field_references: IndexReferences,
+        label_references: IndexReferences,
+        ctx: ParserRuleContext = None,
+        position: Optional[dict] = None,
+    ):
         self.children = children
 
         self._field_references = field_references
@@ -238,7 +225,12 @@ class BaseNode(AST):
     _strict = False
 
     @classmethod
-    def create(cls, ctx, children=None, registry=None):
+    def create(
+        cls,
+        ctx: ParserRuleContext,
+        children: Optional[list] = None,
+        registry: Optional["BaseNodeRegistry"] = None,
+    ) -> "BaseNode":
         if registry is None:
             registry = BaseNodeRegistry()
         if children is None:
@@ -256,7 +248,7 @@ class BaseNode(AST):
         return subclass(children, children_by_field, children_by_label, ctx)
 
     @classmethod
-    def create_cls(cls, cls_name, field_names):
+    def create_cls(cls, cls_name: str, field_names: tuple) -> Type["BaseNode"]:
         return type(cls_name, (cls,), {"_fields": field_names})
 
     def __getattr__(self, name):
@@ -273,7 +265,7 @@ class BaseNode(AST):
         return result
 
     @classmethod
-    def combine(cls, *fields):
+    def combine(cls, *fields: "BaseNode") -> List["BaseNode"]:
         """Combine fields
 
         Creates a list field from other fields
@@ -285,7 +277,9 @@ class BaseNode(AST):
         return result
 
     @staticmethod
-    def extend_node_list(acc, new):
+    def extend_node_list(
+        acc: List["BaseNode"], new: Union[List["BaseNode"], "BaseNode"]
+    ) -> List["BaseNode"]:
         """Extend accumulator with Node(s) from new"""
         if new is None:
             new = []
@@ -293,32 +287,33 @@ class BaseNode(AST):
             new = [new]
         return acc + new
 
-    def get_text(self, full_text=None):
+    def get_text(self, full_text: str = None) -> Optional[str]:
         # TODO implement as __str__?
         #  + easy to combine with str/Terminal
         #  + use Python instead of custom interface
         # (-) very different from repr / json
-        if isinstance(self._ctx, ParseTree):
+        text = None
+        if isinstance(self._ctx, (TerminalNodeImpl, RuleContext)):
             if full_text is None:
                 text = self._ctx.getText()
-            else:
+            elif getattr(self._ctx, "start", None) and getattr(self._ctx, "stop", None):
                 text = full_text[self._ctx.start.start : self._ctx.stop.stop + 1]
-        else:
-            text = None
 
         return text
 
-    def get_position(self):
+    def get_position(self) -> Optional[Dict[str, int]]:
+        position = None
         ctx = self._ctx
         if ctx is not None:
-            if hasattr(ctx, "symbol"):
+            if isinstance(ctx, TerminalNodeImpl):
                 position = {
                     "line_start": ctx.symbol.line,
                     "column_start": ctx.symbol.column,
                     "line_end": ctx.symbol.line,
-                    "column_end": ctx.symbol.column + (ctx.symbol.stop - ctx.symbol.start),
+                    "column_end": ctx.symbol.column
+                    + (ctx.symbol.stop - ctx.symbol.start),
                 }
-            else:
+            elif getattr(ctx, "start", None) and getattr(ctx, "stop", None):
                 position = {
                     "line_start": ctx.start.line,
                     "column_start": ctx.start.column,
@@ -326,9 +321,7 @@ class BaseNode(AST):
                     "column_end": ctx.stop.column + (ctx.stop.stop - ctx.stop.start),
                 }
 
-        else:
-            position = self.position
-        return position
+        return position or self.position
 
     def __repr__(self):
         return str({**self.children_by_field, **self.children_by_label})
@@ -358,7 +351,7 @@ class Terminal(BaseNode):
             return args[0][0]
 
     @classmethod
-    def from_text(cls, text, ctx=None):
+    def from_text(cls, text: str, ctx: Optional[ParserRuleContext] = None):
         return cls([text], {"value": 0}, {}, ctx)
 
     def __eq__(self, other):
@@ -393,7 +386,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
 
     _strict = True
 
-    def __init__(self, node: BaseNode, fields=None):
+    def __init__(self, node: BaseNode, fields: Optional[Dict[str, Any]] = None):
         # TODO: keep reference to node?
         # TODO: **fields? (easier notation, but hard to name future arguments
         super().__init__(
@@ -407,7 +400,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
             setattr(self, field, value)
 
     @classmethod
-    def from_spec(cls, node):
+    def from_spec(cls, node: BaseNode) -> "AliasNode":
         # TODO: no fields_spec argument as before
         field_dict = {}
         for field_spec in cls._fields_spec:
@@ -424,7 +417,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         return cls(node, field_dict)
 
     @classmethod
-    def get_path(cls, node, path):
+    def get_path(cls, node: BaseNode, path: List[str]):
         # TODO: can be defined on FieldNode too
         result = node
         for i in range(len(path)):
@@ -435,7 +428,11 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         return result
 
     @classmethod
-    def bind_to_transformer(cls, transformer_cls, default_transform_method="from_spec"):
+    def bind_to_transformer(
+        cls,
+        transformer_cls: Type["BaseNodeTransformer"],
+        default_transform_method: str = "from_spec",
+    ):
         for rule in cls._rules:
             if isinstance(rule, str):
                 cls_method = default_transform_method
@@ -445,7 +442,7 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
             bind_to_transformer(transformer_cls, rule, transformer_method)
 
     @classmethod
-    def get_transformer(cls, method_name):
+    def get_transformer(cls, method_name: str):
         """Get method to bind to visitor"""
         transform_function = getattr(cls, method_name)
         assert callable(transform_function)
@@ -459,15 +456,39 @@ class AliasNode(BaseNode, metaclass=AstNodeMeta):
         return transformer_method
 
 
+class BaseNodeRegistry:
+    def __init__(self):
+        self.dynamic_node_classes = {}
+
+    def get_cls(self, cls_name: str, field_names: tuple) -> Type[BaseNode]:
+        """"""
+        if cls_name not in self.dynamic_node_classes:
+            self.dynamic_node_classes[cls_name] = BaseNode.create_cls(
+                cls_name, field_names
+            )
+        return self.dynamic_node_classes[cls_name]
+
+    def isinstance(self, instance: BaseNode, class_name: str) -> bool:
+        """Check if a BaseNode is an instance of a registered dynamic class"""
+        if isinstance(instance, BaseNode):
+            klass = self.dynamic_node_classes.get(class_name, None)
+            if klass:
+                return isinstance(instance, klass)
+            # Not an instance of a class in the registry
+            return False
+        else:
+            raise TypeError("This function can only be used for BaseNode objects")
+
+
 # TODO: test: if 'visit' in method, it has to be as 'visit_'
 class BaseNodeTransformer(NodeTransformer):
     def __init__(self, registry: BaseNodeRegistry):
         self.helper = TransformerHelper(registry)
 
-    def visit(self, node):
+    def visit(self, node: BaseNode):
         # TODO: I think transform_  + node.__class__.__name__ would be better/clearer then
         #  as the node methods don't need to do any visiting (which is completely done by visit and generic_visit)
-        method = "visit_" + node.__class__.__name__
+        method = "visit_" + type(node).__name__
         transformer = getattr(self, method, None)
 
         if transformer is None:
@@ -483,27 +504,37 @@ class BaseNodeTransformer(NodeTransformer):
                 # visit BaseNode (e.g. result of Transformer method)
                 if isinstance(alias, list):
                     # Transformer method can return array instead of node
-                    alias = [self.visit(el) for el in alias]  # TODO: test
+                    alias = [
+                        self.visit(el) if isinstance(el, BaseNode) else el
+                        for el in alias
+                    ]  # TODO: test
                 elif isinstance(alias, BaseNode):
                     alias = self.visit(alias)
 
             return alias
 
-    def visit_Terminal(self, terminal):
-        return self.terminal_visitor(terminal)
-
-    def visit_str(self, string):
-        return self.terminal_visitor(string)
-
-    def terminal_visitor(self, terminal):
-        """Helper to transparently handle Terminal"""
+    def visit_Terminal(self, terminal: Terminal) -> Terminal:
+        """Handle Terminal the same as other non-node types"""
         return terminal
 
     @classmethod
-    def bind_alias_nodes(cls, alias_classes):
+    def bind_alias_nodes(cls, alias_classes: List[Type[AliasNode]]):
         for item in alias_classes:
             if getattr(item, "_rules", None) is not None:
                 item.bind_to_transformer(cls)
+
+
+def bind_to_transformer(
+    transformer_cls: Type[BaseNodeTransformer],
+    rule_name: str,
+    transformer_method: Callable,
+):
+    """Assign AST node class constructors to parse tree visitors."""
+    setattr(transformer_cls, get_transformer_method_name(rule_name), transformer_method)
+
+
+def get_transformer_method_name(rule_name: str) -> str:
+    return "visit_{}".format(rule_name[0].upper() + rule_name[1:])
 
 
 class TransformerHelper:
@@ -514,7 +545,7 @@ class TransformerHelper:
         return self.registry.isinstance(*args)
 
 
-def get_alias_nodes(items):
+def get_alias_nodes(items) -> List[Type[AstNode]]:
     return list(
         filter(
             lambda item: inspect.isclass(item) and issubclass(item, AliasNode), items
@@ -622,7 +653,9 @@ class BaseAstVisitor(ParseTreeVisitor):
     def __init__(self, registry: BaseNodeRegistry):
         self.registry = registry
 
-    def visitChildren(self, node, predicate=None, simplify=False):
+    def visitChildren(
+        self, node: ParserRuleContext, predicate=None, simplify=False
+    ) -> BaseNode:
         # children is None if all parts of a grammar rule are optional and absent
         children = [self.visit(child) for child in node.children or []]
 
@@ -630,19 +663,19 @@ class BaseAstVisitor(ParseTreeVisitor):
 
         return instance
 
-    def visitTerminal(self, ctx):
+    def visitTerminal(self, ctx: ParserRuleContext) -> Terminal:
         """Converts case insensitive keywords and identifiers to lowercase"""
         text = ctx.getText()
         return Terminal.from_text(text, ctx)
 
-    def visitErrorNode(self, node):
+    def visitErrorNode(self, node: ErrorNode):
         return None
 
 
 # ANTLR helpers
 
 
-def get_field(ctx, field):
+def get_field(ctx: ParserRuleContext, field: str):
     """Helper to get the value of a field"""
     # field can be a string or a node attribute
     if isinstance(field, str):
@@ -661,7 +694,9 @@ def get_field(ctx, field):
     return field
 
 
-def get_field_references(ctx, field_names, simplify=False):
+def get_field_references(
+    ctx: ParserRuleContext, field_names: List[str], simplify=False
+) -> Dict[str, Any]:
     """
     Create a mapping from fields to corresponding child indices
     :param ctx: ANTLR node
@@ -689,7 +724,7 @@ def get_field_references(ctx, field_names, simplify=False):
     return field_dict
 
 
-def materialize(reference_dict, source):
+def materialize(reference_dict: IndexReferences, source: List[Any]) -> Dict[str, Any]:
     """
     Replace indices by actual elements in a reference mapping
     :param reference_dict: mapping str -> int | int[]
@@ -708,7 +743,7 @@ def materialize(reference_dict, source):
     return materialized_dict
 
 
-def get_field_names(ctx):
+def get_field_names(ctx: ParserRuleContext) -> List[str]:
     """Get fields defined in an ANTLR context for a parser rule"""
     # this does not include labels and literals, only rule names and token names
     # TODO: check ANTLR parser template for full exclusion list
@@ -721,7 +756,7 @@ def get_field_names(ctx):
     return fields
 
 
-def get_label_names(ctx):
+def get_label_names(ctx: ParserRuleContext) -> List[str]:
     """Get labels defined in an ANTLR context for a parser rule"""
     labels = [
         label
