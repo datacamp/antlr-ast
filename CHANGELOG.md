@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.7.0
+
+- Return `None` if `get_position` has no better result
+- Add type signatures
+- Improve lexer errors
+
+## v0.6.0
+
+- Support `get_position` for Terminal nodes
+
 ## v0.5.0
 
 - Rewrite as a staged approach
