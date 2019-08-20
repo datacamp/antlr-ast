@@ -13,7 +13,7 @@ from antlr4 import CommonTokenStream, ParseTreeVisitor, ParserRuleContext, RuleC
 from antlr4.tree.Tree import ErrorNode, TerminalNodeImpl, ParseTree
 
 from antlr_ast.inputstream import CaseTransformInputStream
-from antlr4.error.ErrorListener import ErrorListener
+from antlr4.error.ErrorListener import ErrorListener, ConsoleErrorListener
 
 
 def parse(
@@ -21,12 +21,15 @@ def parse(
     text: str,
     start: str,
     strict=False,
-    upper=True,
+    transform: Union[str, Callable] = None,
     error_listener: ErrorListener = None,
 ) -> ParseTree:
-    input_stream = CaseTransformInputStream(text, upper=upper)
+    input_stream = CaseTransformInputStream(text, transform=transform)
 
     lexer = grammar.Lexer(input_stream)
+    lexer.removeErrorListeners()
+    lexer.addErrorListener(LexerErrorListener())
+
     token_stream = CommonTokenStream(lexer)
     parser = grammar.Parser(token_stream)
     parser.buildParseTrees = True  # default
@@ -148,6 +151,7 @@ class Speaker:
 
 # Error Listener ------------------------------------------------------------------
 
+
 # from antlr4.error.Errors import RecognitionException
 
 
@@ -157,12 +161,12 @@ class AntlrException(Exception):
 
 
 class StrictErrorListener(ErrorListener):
+    # The recognizer will be the parser instance
     def syntaxError(self, recognizer, badSymbol, line, col, msg, e):
-        if e is not None:
-            msg = "line {line}: {col} {msg}".format(line=line, col=col, msg=msg)
-            raise AntlrException(msg, e)
-        else:
-            raise AntlrException(msg, None)
+        msg = "line {line}:{col} {msg}".format(
+            badSymbol=badSymbol, line=line, col=col, msg=msg
+        )
+        raise AntlrException(msg, e)
 
     def reportAmbiguity(
         self, recognizer, dfa, startIndex, stopIndex, exact, ambigAlts, configs
@@ -181,6 +185,13 @@ class StrictErrorListener(ErrorListener):
     ):
         return
         # raise Exception("TODO")
+
+
+class LexerErrorListener(ConsoleErrorListener):
+    def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
+        if isinstance(e.input, CaseTransformInputStream):
+            msg = msg + " " + repr(e.input)
+        super().syntaxError(recognizer, offendingSymbol, line, column, msg, e)
 
 
 # Parse Tree Visitor ----------------------------------------------------------
