@@ -7,8 +7,10 @@ from antlr_ast.ast import (
     Terminal,
 )
 from antlr_ast.inputstream import CaseTransformInputStream
+from antlr_ast.marshalling import AstEncoder, get_decoder
 
 from . import grammar
+import json
 
 
 class SubExpr(AliasNode):
@@ -184,6 +186,20 @@ def test_terminal_get_text_from_position():
     assert text_right == "894654"
     assert text_left == "(2 + 2)"
     assert text_left_expr_left == "2"
+
+
+def test_text_none_and_self_text():
+    # Given
+    code = "not 2"
+    ast_tree = parse(code)
+    json_tree = json.dumps(ast_tree, cls=AstEncoder)
+    from_json_ast_tree = json.JSONDecoder(object_hook=get_decoder()).decode(json_tree)
+
+    # When
+    text = from_json_ast_tree.get_text()
+
+    # Then
+    assert text == "not2"
 
 
 def test_no_position():

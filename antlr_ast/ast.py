@@ -209,7 +209,7 @@ class BaseNode(AST):
         children: list,
         field_references: IndexReferences,
         label_references: IndexReferences,
-        ctx: ParserRuleContext = None,
+        ctx: Optional[ParserRuleContext] = None,
         position: Optional[dict] = None,
         text: Optional[str] = None,
     ):
