@@ -15,6 +15,7 @@ class AstEncoder(JSONEncoder):
                 "@type": o.__class__.__name__,
                 "@fields": o._fields,
                 "@position": o.get_position(),
+                "@text": o.get_text(),
                 "field_references": o._field_references,
                 "label_references": o._label_references,
                 "children": o.children,
@@ -32,7 +33,8 @@ def decode_ast(registry, ast_json):
             ast_json["children"],
             ast_json["field_references"],
             ast_json["label_references"],
-            position=ast_json["@position"],
+            position=ast_json.get("@position", None),
+            text=ast_json.get("@text", None),
         )
     else:
         return ast_json
