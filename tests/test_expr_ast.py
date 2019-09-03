@@ -150,6 +150,42 @@ def test_terminal_get_position():
         assert item in position.items()
 
 
+def test_terminal_get_text_input_stream():
+    # Given
+    code = "(2 + 2) + 894654"
+
+    # When
+    result = parse(code)
+    text = result.get_text()
+    text_right = result.right.get_text()
+    text_left = result.left.get_text()
+    text_left_expr_left = result.left.expr.left.get_text()
+
+    # Then
+    assert text == "(2+2)+894654"
+    assert text_right == "894654"
+    assert text_left == "(2+2)"
+    assert text_left_expr_left == "2"
+
+
+def test_terminal_get_text_from_position():
+    # Given
+    code = "(2 + 2) + 894654"
+
+    # When
+    result = parse(code)
+    text = result.get_text(code)
+    text_right = result.right.get_text(code)
+    text_left = result.left.get_text(code)
+    text_left_expr_left = result.left.expr.left.get_text(code)
+
+    # Then
+    assert text == "(2 + 2) + 894654"
+    assert text_right == "894654"
+    assert text_left == "(2 + 2)"
+    assert text_left_expr_left == "2"
+
+
 def test_no_position():
     # Given
     code = "!"

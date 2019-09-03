@@ -309,6 +309,12 @@ class BaseNode(AST):
                 text = self._ctx.getText()
             elif getattr(self._ctx, "start", None) and getattr(self._ctx, "stop", None):
                 text = full_text[self._ctx.start.start : self._ctx.stop.stop + 1]
+            elif (
+                getattr(self._ctx, "symbol", None)
+                and getattr(self._ctx.symbol, "start", None)
+                and getattr(self._ctx.symbol, "stop", None)
+            ):
+                text = full_text[self._ctx.symbol.start : self._ctx.symbol.stop + 1]
 
         return text
 
