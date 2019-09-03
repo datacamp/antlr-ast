@@ -4,7 +4,8 @@ python:
 install:
 - pip install -r requirements.txt
 - pip install .
-script: py.test
+script: py.test --cov=antlr_ast
+after_success: codecov
 deploy:
   provider: pypi
   user: datacamp
