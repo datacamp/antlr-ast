@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## v0.8.0
+
+- Support for Terminal nodes in get_text
+- Add optional text attribute to BaseNode
+- Fix marshalling to recursively transform children
+
 ## v0.7.0
 
 - Return `None` if `get_position` has no better result
