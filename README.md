@@ -1,6 +1,7 @@
 # antlr-ast
 
 [![Build Status](https://travis-ci.org/datacamp/antlr-ast.svg?branch=master)](https://travis-ci.org/datacamp/antlr-ast)
+[![codecov](https://codecov.io/gh/datacamp/antlr-ast/branch/master/graph/badge.svg)](https://codecov.io/gh/datacamp/antlr-ast)
 
 This package allows you to use ANTLR grammars and use the parser output to generate an abstract syntax tree (AST).
 
