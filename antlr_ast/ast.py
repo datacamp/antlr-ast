@@ -209,8 +209,9 @@ class BaseNode(AST):
         children: list,
         field_references: IndexReferences,
         label_references: IndexReferences,
-        ctx: ParserRuleContext = None,
+        ctx: Optional[ParserRuleContext] = None,
         position: Optional[dict] = None,
+        text: Optional[str] = None,
     ):
         self.children = children
 
@@ -222,6 +223,7 @@ class BaseNode(AST):
 
         self._ctx = ctx
         self.position = position
+        self.text = text
 
     _fields = ()
 
@@ -315,6 +317,8 @@ class BaseNode(AST):
                 and getattr(self._ctx.symbol, "stop", None)
             ):
                 text = full_text[self._ctx.symbol.start : self._ctx.symbol.stop + 1]
+        if text is None and self.text:
+            text = self.text
 
         return text
 

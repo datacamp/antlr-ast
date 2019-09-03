@@ -1,0 +1,42 @@
+{
+  "@type": "NotExpr",
+  "@fields": [
+    "op",
+    "expr"
+  ],
+  "@position": {
+    "line_start": 1,
+    "column_start": 0,
+    "line_end": 1,
+    "column_end": 4
+  },
+  "@text": "not2",
+  "field_references": {
+    "NOT": 0,
+    "expr": 1
+  },
+  "label_references": {},
+  "children": [
+    "not",
+    {
+      "@type": "Integer",
+      "@fields": [
+        "INT"
+      ],
+      "@position": {
+        "line_start": 1,
+        "column_start": 4,
+        "line_end": 1,
+        "column_end": 4
+      },
+      "@text": "2",
+      "field_references": {
+        "INT": 0
+      },
+      "label_references": {},
+      "children": [
+        "2"
+      ]
+    }
+  ]
+}
