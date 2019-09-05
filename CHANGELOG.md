@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 
 ## v0.8.0
 
-- Support for Terminal nodes in get_text
+- Support for Terminal nodes in `get_text`
 - Add optional text attribute to BaseNode
 - Fix marshalling to recursively transform children
 
