@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.8.1
+
+- Fix get_cls in BaseNodeRegistry, now updates fields of classes already in the registry
 
 ## v0.8.0
 
