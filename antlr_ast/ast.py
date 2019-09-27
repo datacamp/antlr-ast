@@ -487,6 +487,12 @@ class BaseNodeRegistry:
             self.dynamic_node_classes[cls_name] = BaseNode.create_cls(
                 cls_name, field_names
             )
+        else:
+            existing_cls = self.dynamic_node_classes[cls_name]
+            all_fields = tuple(set(existing_cls._fields) | set(field_names))
+            if len(all_fields) > len(existing_cls._fields):
+                existing_cls._fields = all_fields
+
         return self.dynamic_node_classes[cls_name]
 
     def isinstance(self, instance: BaseNode, class_name: str) -> bool:
